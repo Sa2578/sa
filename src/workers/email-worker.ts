@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { Worker, Job } from "bullmq";
 import { PrismaClient, type Prisma } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
 import { recordEmailEvent, guessBounceType } from "../lib/email-events";
 import { formatMailbox, sendEmail } from "../lib/mailer";
 import { getDatabaseUrl } from "../lib/env";
@@ -9,8 +8,8 @@ import { selectInboxForSending, syncInboxDailyCounters } from "../lib/inbox-rota
 import { getRedisConnection } from "../lib/queue";
 import { buildTrackingPixelUrl, wrapTrackedLinks } from "../lib/tracking";
 
-const adapter = new PrismaPg({ connectionString: getDatabaseUrl() });
-const prisma = new PrismaClient({ adapter });
+getDatabaseUrl();
+const prisma = new PrismaClient();
 const connection = getRedisConnection();
 
 interface EmailJob {
