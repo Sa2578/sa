@@ -1,12 +1,19 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { getDatabaseUrl } from "./env";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createPrismaClient() {
-  // Ensure DATABASE_URL is present before constructing the client.
-  getDatabaseUrl();
-  return new PrismaClient();
+  const adapter = new PrismaPg({
+    connectionString: getDatabaseUrl(),
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
+    max: 10,
+  });
+
+  return new PrismaClient({ adapter });
 }
 
 function getPrismaClient() {
