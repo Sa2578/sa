@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String?
+  email        String     @unique
+  passwordHash String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  domains      Domain[]
+  campaigns    Campaign[]
+}
+
+model Domain {
+  id              String       @id @default(cuid())
+  domainName      String       @unique
+  status          DomainStatus @default(ACTIVE)
+  spfValid        Boolean      @default(false)
+  dkimValid       Boolean      @default(false)
+  dmarcValid      Boolean      @default(false)
+  dkimSelectors   Json?
+  spfRecord       String?
+  dmarcRecord     String?
+  mxRecords       Json?
+  dnsCheckReport  Json?
+  dnsLastCheckedAt DateTime?
+  dnsLastError    String?
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+  inboxes         Inbox[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+enum DomainStatus {
+  ACTIVE
+  WARMUP
+  FLAGGED
+  PAUSED
+}
+
+model Inbox {
+  id                String       @id @default(cuid())
+  emailAddress      String       @unique
+  domainId          String
+  domain            Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  senderName        String?
+  replyToEmail      String?
+  smtpHost          String
+  smtpPort          Int          @default(587)
+  smtpUser          String
+  smtpPass          String
+  lastSmtpVerifiedAt DateTime?
+  smtpLastError     String?
+  dailyLimit        Int          @default(50)
+  sentToday         Int          @default(0)
+  warmupStatus      WarmupStatus @default(NONE)
+  reputationScore   Float        @default(100)
+  isActive          Boolean      @default(true)
+  emailLogs         EmailLog[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([domainId])
+}
+
+enum WarmupStatus {
+  NONE
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Lead {
+  id         String     @id @default(cuid())
+  email      String
+  name       String?
+  company    String?
+  status     LeadStatus @default(NEW)
+  campaignId String?
+  campaign   Campaign?  @relation(fields: [campaignId], references: [id])
+  emailLogs  EmailLog[]
+  createdAt  DateTime   @default(now())
+
+  @@unique([email, campaignId])
+  @@index([campaignId])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  REPLIED
+  BOUNCED
+  UNSUBSCRIBED
+}
+
+model Campaign {
+  id              String         @id @default(cuid())
+  name            String
+  subject         String
+  bodyTemplate    String
+  status          CampaignStatus @default(DRAFT)
+  isSystem        Boolean        @default(false)
+  sendingSchedule Json?
+  userId          String
+  user            User           @relation(fields: [userId], references: [id])
+  leads           Lead[]
+  emailLogs       EmailLog[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([userId])
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model EmailLog {
+  id                String       @id @default(cuid())
+  leadId            String
+  lead              Lead         @relation(fields: [leadId], references: [id])
+  inboxId           String
+  inbox             Inbox        @relation(fields: [inboxId], references: [id])
+  campaignId        String
+  campaign          Campaign     @relation(fields: [campaignId], references: [id])
+  subject           String
+  body              String
+  status            EmailStatus  @default(QUEUED)
+  messageId         String?
+  providerMessageId String?
+  smtpResponse      String?
+  failureReason     String?
+  bounceType        String?
+  latestEventType   String?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  deliveredAt       DateTime?
+  spamAt            DateTime?
+  repliedAt         DateTime?
+  sentAt            DateTime?
+  lastEventAt       DateTime?
+  createdAt         DateTime     @default(now())
+  events            EmailEvent[]
+
+  @@index([inboxId])
+  @@index([campaignId])
+  @@index([leadId])
+  @@index([status])
+  @@index([sentAt])
+  @@index([messageId])
+  @@index([providerMessageId])
+  @@index([latestEventType])
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  SPAM
+  FAILED
+}
+
+model Alert {
+  id         String   @id @default(cuid())
+  type       String
+  severity   String
+  message    String
+  entityType String
+  entityId   String
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([resolved])
+  @@index([entityType, entityId])
+}
+
+model EmailEvent {
+  id                String    @id @default(cuid())
+  emailLogId        String
+  emailLog          EmailLog  @relation(fields: [emailLogId], references: [id], onDelete: Cascade)
+  eventType         String
+  source            String
+  occurredAt        DateTime?
+  receivedAt        DateTime  @default(now())
+  messageId         String?
+  providerMessageId String?
+  payload           Json?
+
+  @@index([emailLogId, receivedAt])
+  @@index([eventType])
+}
