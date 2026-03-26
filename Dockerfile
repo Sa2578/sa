@@ -2,8 +2,6 @@ FROM node:22-slim
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 
@@ -13,6 +11,8 @@ COPY . .
 
 RUN npx prisma generate
 RUN npm run build
+
+ENV NODE_ENV=production
 
 EXPOSE 3000
 
