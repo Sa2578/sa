@@ -30,7 +30,13 @@ interface InboxLogEvent {
   id: string;
   eventType: string;
   source: string;
+  occurredAt: string | null;
   receivedAt: string;
+  payload?: {
+    kind?: string;
+    placement?: string | null;
+    analysis?: HeaderAnalysis;
+  } | null;
 }
 
 interface InboxLog {
@@ -77,6 +83,8 @@ function getEventColor(eventType?: string | null) {
   switch (eventType) {
     case "accepted":
       return "blue";
+    case "header_analysis":
+      return "blue";
     case "delivered":
       return "green";
     case "open":
@@ -102,6 +110,37 @@ function getAuthColor(value: string | null) {
   return "red";
 }
 
+function getPlacementColor(value?: string | null) {
+  switch (value) {
+    case "INBOX":
+      return "green";
+    case "PROMOTIONS":
+    case "UPDATES":
+    case "FORUMS":
+      return "yellow";
+    case "SPAM":
+      return "red";
+    case "OTHER":
+      return "blue";
+    default:
+      return "gray";
+  }
+}
+
+function formatPlacementLabel(value?: string | null) {
+  if (!value) return "Unknown";
+  return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ");
+}
+
+function findHeaderAnalysisEvent(log: InboxLog) {
+  return log.events.find(
+    (event) =>
+      event.eventType === "header_analysis" &&
+      event.payload?.kind === "gmail_header_analysis" &&
+      event.payload.analysis
+  );
+}
+
 export default function InboxDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -122,6 +161,9 @@ export default function InboxDetailPage() {
   const [rawHeaders, setRawHeaders] = useState("");
   const [headerAnalysis, setHeaderAnalysis] = useState<HeaderAnalysis | null>(null);
   const [analyzingHeaders, setAnalyzingHeaders] = useState(false);
+  const [headerPlacement, setHeaderPlacement] = useState("UNKNOWN");
+  const [headerLogId, setHeaderLogId] = useState("");
+  const [headerMessage, setHeaderMessage] = useState("");
 
   const fetchInbox = useCallback(async () => {
     const [inboxRes, logsRes, healthRes] = await Promise.all([
@@ -139,13 +181,17 @@ export default function InboxDetailPage() {
     }
 
     if (logsRes.ok) {
-      setLogs(await logsRes.json());
+      const logData = await logsRes.json();
+      setLogs(logData);
+      if (!headerLogId && Array.isArray(logData) && logData.length > 0) {
+        setHeaderLogId(logData[0].id);
+      }
     }
 
     if (healthRes.ok) {
       setHealth(await healthRes.json());
     }
-  }, [id]);
+  }, [headerLogId, id]);
 
   useEffect(() => {
     fetchInbox();
@@ -227,14 +273,30 @@ export default function InboxDetailPage() {
 
   async function handleAnalyzeHeaders() {
     setAnalyzingHeaders(true);
+    setHeaderMessage("");
     const res = await fetch("/api/deliverability/header-analysis", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rawHeaders }),
+      body: JSON.stringify({
+        rawHeaders,
+        placement: headerPlacement,
+        emailLogId: headerLogId || undefined,
+      }),
     });
 
     const data = await res.json().catch(() => null);
-    setHeaderAnalysis(res.ok ? data : null);
+    if (res.ok) {
+      setHeaderAnalysis(data.analysis || data);
+      setHeaderMessage(
+        data.persisted
+          ? `Header analysis saved to the email log${data.placement && data.placement !== "UNKNOWN" ? ` (${formatPlacementLabel(data.placement)})` : ""}.`
+          : "Headers analyzed, but no matching email log was found to persist the result."
+      );
+      fetchInbox();
+    } else {
+      setHeaderAnalysis(null);
+      setHeaderMessage("Unable to analyze or save these headers.");
+    }
     setAnalyzingHeaders(false);
   }
 
@@ -401,6 +463,39 @@ export default function InboxDetailPage() {
         <p className="mb-3 text-sm text-gray-500">
           After receiving the test email in Gmail, open “Show original”, copy the headers and paste them here to inspect SPF, DKIM and DMARC.
         </p>
+        <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Match to Email Log</label>
+            <select
+              value={headerLogId}
+              onChange={(e) => setHeaderLogId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Auto-match by Message-ID</option>
+              {logs.map((log) => (
+                <option key={log.id} value={log.id}>
+                  {log.lead.email} · {log.subject}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Mailbox Placement</label>
+            <select
+              value={headerPlacement}
+              onChange={(e) => setHeaderPlacement(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            >
+              <option value="UNKNOWN">Unknown</option>
+              <option value="INBOX">Inbox</option>
+              <option value="PROMOTIONS">Promotions</option>
+              <option value="UPDATES">Updates</option>
+              <option value="FORUMS">Forums</option>
+              <option value="SPAM">Spam</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+        </div>
         <textarea
           value={rawHeaders}
           onChange={(e) => setRawHeaders(e.target.value)}
@@ -413,6 +508,10 @@ export default function InboxDetailPage() {
             {analyzingHeaders ? "Analyzing..." : "Analyze Headers"}
           </Button>
         </div>
+
+        {headerMessage && (
+          <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">{headerMessage}</p>
+        )}
 
         {headerAnalysis && (
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -474,6 +573,25 @@ export default function InboxDetailPage() {
                   ))}
                   {log.events.length === 0 && <Badge color="gray">No events yet</Badge>}
                 </div>
+                {findHeaderAnalysisEvent(log)?.payload?.analysis && (
+                  <div className="mt-3 rounded-lg bg-gray-50 p-3">
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <Badge color={getAuthColor(findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.spf || null)}>
+                        SPF: {findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.spf || "unknown"}
+                      </Badge>
+                      <Badge color={getAuthColor(findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.dkim || null)}>
+                        DKIM: {findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.dkim || "unknown"}
+                      </Badge>
+                      <Badge color={getAuthColor(findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.dmarc || null)}>
+                        DMARC: {findHeaderAnalysisEvent(log)?.payload?.analysis?.authenticationResults.dmarc || "unknown"}
+                      </Badge>
+                      <Badge color={getPlacementColor(findHeaderAnalysisEvent(log)?.payload?.placement)}>
+                        Placement: {formatPlacementLabel(findHeaderAnalysisEvent(log)?.payload?.placement)}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-gray-600">Saved from Gmail raw headers.</p>
+                  </div>
+                )}
                 {log.smtpResponse && (
                   <p className="mt-3 font-mono text-xs text-gray-600">{log.smtpResponse}</p>
                 )}
