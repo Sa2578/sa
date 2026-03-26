@@ -20,9 +20,13 @@ export function assertRequiredEnv() {
     readEnv(envVar);
   }
 
-  if (!process.env.NEXTAUTH_URL && !process.env.RENDER_EXTERNAL_URL) {
+  if (
+    !process.env.NEXTAUTH_URL &&
+    !process.env.RENDER_EXTERNAL_URL &&
+    !process.env.KOYEB_PUBLIC_DOMAIN
+  ) {
     throw new Error(
-      "Missing required environment variable: NEXTAUTH_URL (or Render RENDER_EXTERNAL_URL)"
+      "Missing required environment variable: NEXTAUTH_URL (or Render RENDER_EXTERNAL_URL / Koyeb KOYEB_PUBLIC_DOMAIN)"
     );
   }
 }
@@ -46,8 +50,13 @@ export function getAppUrl() {
     return renderUrl;
   }
 
+  const koyebDomain = process.env.KOYEB_PUBLIC_DOMAIN;
+  if (koyebDomain) {
+    return `https://${koyebDomain}`;
+  }
+
   throw new Error(
-    "Missing required environment variable: NEXTAUTH_URL (or Render RENDER_EXTERNAL_URL)"
+    "Missing required environment variable: NEXTAUTH_URL (or Render RENDER_EXTERNAL_URL / Koyeb KOYEB_PUBLIC_DOMAIN)"
   );
 }
 

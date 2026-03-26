@@ -1,14 +1,5 @@
-import net from "node:net";
 import { prisma } from "./prisma";
-import { getRedisUrl } from "./env";
-
-function getRedisConnectionDetails() {
-  const url = new URL(getRedisUrl());
-  return {
-    host: url.hostname,
-    port: parseInt(url.port || "6379", 10),
-  };
-}
+import { openRedisHealthSocket } from "./redis";
 
 export function getStartOfCurrentDay() {
   const now = new Date();
@@ -27,10 +18,8 @@ export async function checkDatabaseHealth() {
 }
 
 export async function checkRedisHealth() {
-  const { host, port } = getRedisConnectionDetails();
-
   return new Promise<{ ok: true } | { ok: false; message: string }>((resolve) => {
-    const socket = net.createConnection({ host, port });
+    const socket = openRedisHealthSocket();
 
     socket.once("connect", () => {
       socket.end();

@@ -1,15 +1,10 @@
 import { Queue } from "bullmq";
-import { getRedisUrl } from "./env";
+import { getRedisConnectionConfig } from "./redis";
 
 let emailQueue: Queue | null = null;
 
 export function getRedisConnection() {
-  const redisUrl = new URL(getRedisUrl());
-
-  return {
-    host: redisUrl.hostname,
-    port: parseInt(redisUrl.port || "6379", 10),
-  };
+  return getRedisConnectionConfig();
 }
 
 export function getEmailQueue() {
