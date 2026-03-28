@@ -90,16 +90,19 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
 
   let shouldUpdateLeadToBounced = false;
   let shouldUpdateLeadToReplied = false;
+  let shouldUpdateLeadToContacted = false;
 
   switch (input.eventType) {
     case "accepted":
       emailLogData.status = normalizeLatestStatus(emailLog.status, "SENT");
       emailLogData.sentAt = emailLog.sentAt ?? occurredAt;
       emailLogData.smtpResponse = input.smtpResponse ?? emailLog.smtpResponse;
+      shouldUpdateLeadToContacted = emailLog.lead.status === "NEW";
       break;
     case "delivered":
       emailLogData.status = normalizeLatestStatus(emailLog.status, "DELIVERED");
       emailLogData.deliveredAt = occurredAt;
+      shouldUpdateLeadToContacted = emailLog.lead.status === "NEW";
       break;
     case "open":
       emailLogData.status = normalizeLatestStatus(emailLog.status, "OPENED");
@@ -165,6 +168,15 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
       prisma.lead.update({
         where: { id: emailLog.leadId },
         data: { status: "REPLIED" },
+      })
+    );
+  }
+
+  if (shouldUpdateLeadToContacted) {
+    operations.push(
+      prisma.lead.update({
+        where: { id: emailLog.leadId },
+        data: { status: "CONTACTED" },
       })
     );
   }
