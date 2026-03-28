@@ -24,6 +24,7 @@ interface RecordEmailEventInput extends EmailEventIdentifiers {
   payload?: Prisma.InputJsonValue;
   failureReason?: string | null;
   bounceType?: string | null;
+  smtpResponse?: string | null;
 }
 
 function normalizeMessageId(value?: string | null) {
@@ -94,6 +95,7 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
     case "accepted":
       emailLogData.status = normalizeLatestStatus(emailLog.status, "SENT");
       emailLogData.sentAt = emailLog.sentAt ?? occurredAt;
+      emailLogData.smtpResponse = input.smtpResponse ?? emailLog.smtpResponse;
       break;
     case "delivered":
       emailLogData.status = normalizeLatestStatus(emailLog.status, "DELIVERED");
@@ -113,6 +115,7 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
       emailLogData.bouncedAt = occurredAt;
       emailLogData.failureReason = input.failureReason ?? emailLog.failureReason;
       emailLogData.bounceType = input.bounceType ?? guessBounceType(input.failureReason) ?? emailLog.bounceType;
+      emailLogData.smtpResponse = input.smtpResponse ?? emailLog.smtpResponse;
       shouldUpdateLeadToBounced = true;
       break;
     case "spam":
@@ -126,6 +129,7 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
     case "failed":
       emailLogData.status = "FAILED";
       emailLogData.failureReason = input.failureReason ?? emailLog.failureReason;
+      emailLogData.smtpResponse = input.smtpResponse ?? emailLog.smtpResponse;
       break;
   }
 

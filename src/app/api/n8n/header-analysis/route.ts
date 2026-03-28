@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import {
   headerPlacementValues,
   persistHeaderAnalysis,
 } from "@/lib/header-analysis-persistence";
+import { isWebhookAuthorized } from "@/lib/webhook-auth";
 
 const headerSchema = z.object({
   rawHeaders: z.string().trim().min(1),
@@ -13,12 +13,11 @@ const headerSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
+    if (!isWebhookAuthorized(req)) {
+      return NextResponse.json({ error: "Unauthorized webhook" }, { status: 401 });
+    }
+
     const body = await req.json();
     const parsed = headerSchema.safeParse(body);
     if (!parsed.success) {
@@ -30,7 +29,6 @@ export async function POST(req: Request) {
         rawHeaders: parsed.data.rawHeaders,
         emailLogId: parsed.data.emailLogId,
         placement: parsed.data.placement,
-        userId: session.user.id,
       })
     );
   } catch (error) {
