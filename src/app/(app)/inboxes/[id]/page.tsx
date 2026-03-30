@@ -89,6 +89,8 @@ function getEventColor(eventType?: string | null) {
       return "green";
     case "open":
       return "green";
+    case "open_suspected":
+      return "yellow";
     case "click":
       return "purple";
     case "bounce":
@@ -102,6 +104,11 @@ function getEventColor(eventType?: string | null) {
     default:
       return "gray";
   }
+}
+
+function formatEventLabel(eventType?: string | null) {
+  if (!eventType) return "none";
+  return eventType.replace(/_/g, " ");
 }
 
 function getAuthColor(value: string | null) {
@@ -568,11 +575,16 @@ export default function InboxDetailPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {log.events.map((event) => (
                     <Badge key={event.id} color={getEventColor(event.eventType)}>
-                      {event.eventType} via {event.source}
+                      {formatEventLabel(event.eventType)} via {event.source}
                     </Badge>
                   ))}
                   {log.events.length === 0 && <Badge color="gray">No events yet</Badge>}
                 </div>
+                {log.events.some((event) => event.eventType === "open_suspected") && (
+                  <p className="mt-3 text-xs text-yellow-700">
+                    A suspicious pixel fetch was recorded and ignored for open-rate purposes.
+                  </p>
+                )}
                 {findHeaderAnalysisEvent(log)?.payload?.analysis && (
                   <div className="mt-3 rounded-lg bg-gray-50 p-3">
                     <div className="mb-2 flex flex-wrap gap-2">

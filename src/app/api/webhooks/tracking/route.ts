@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { getWebhookSecret } from "@/lib/env";
 import { recordEmailEvent, type DeliverabilityEventType, guessBounceType } from "@/lib/email-events";
+import {
+  buildTrackingRequestContext,
+  classifyOpenTrackingRequest,
+} from "@/lib/tracking";
+import { prisma } from "@/lib/prisma";
 
 function isAuthorized(req: Request) {
   const expectedSecret = getWebhookSecret();
@@ -96,6 +101,55 @@ function buildTransparentPixel() {
   );
 }
 
+async function findEmailLogForTracking(identifiers: {
+  logId?: string;
+  messageId?: string;
+  providerMessageId?: string;
+}) {
+  if (identifiers.logId) {
+    return prisma.emailLog.findUnique({
+      where: { id: identifiers.logId },
+      select: {
+        id: true,
+        status: true,
+        sentAt: true,
+        messageId: true,
+        providerMessageId: true,
+      },
+    });
+  }
+
+  if (identifiers.providerMessageId) {
+    return prisma.emailLog.findFirst({
+      where: { providerMessageId: identifiers.providerMessageId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        sentAt: true,
+        messageId: true,
+        providerMessageId: true,
+      },
+    });
+  }
+
+  if (identifiers.messageId) {
+    return prisma.emailLog.findFirst({
+      where: { messageId: identifiers.messageId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        sentAt: true,
+        messageId: true,
+        providerMessageId: true,
+      },
+    });
+  }
+
+  return null;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const identifiers = {
@@ -115,12 +169,60 @@ export async function GET(req: Request) {
   }
 
   try {
-    await recordEmailEvent({
-      ...identifiers,
-      eventType,
-      source: "tracking",
-      payload: Object.fromEntries(searchParams.entries()) as Prisma.InputJsonValue,
-    });
+    const emailLog = await findEmailLogForTracking(identifiers);
+    if (!emailLog) {
+      return new NextResponse("Email log not found", { status: 400 });
+    }
+
+    const trackingContext = buildTrackingRequestContext(req);
+    const payload = {
+      query: Object.fromEntries(searchParams.entries()),
+      trackingRequest: trackingContext,
+    };
+
+    if (eventType === "open") {
+      const classification = classifyOpenTrackingRequest(req, emailLog.sentAt);
+
+      if (classification.suspicious) {
+        await prisma.emailEvent.create({
+          data: {
+            emailLogId: emailLog.id,
+            eventType: "open_suspected",
+            source: "tracking",
+            occurredAt: new Date(),
+            messageId: emailLog.messageId,
+            providerMessageId: emailLog.providerMessageId,
+            payload: {
+              ...payload,
+              openClassification: {
+                suspicious: true,
+                reasons: classification.reasons,
+              },
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      } else {
+        await recordEmailEvent({
+          logId: emailLog.id,
+          eventType,
+          source: "tracking",
+          payload: {
+            ...payload,
+            openClassification: {
+              suspicious: false,
+              reasons: [],
+            },
+          } as unknown as Prisma.InputJsonValue,
+        });
+      }
+    } else {
+      await recordEmailEvent({
+        logId: emailLog.id,
+        eventType,
+        source: "tracking",
+        payload: payload as unknown as Prisma.InputJsonValue,
+      });
+    }
 
     if (eventType === "open") {
       return new NextResponse(buildTransparentPixel(), {
