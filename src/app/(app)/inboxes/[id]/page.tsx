@@ -582,7 +582,7 @@ export default function InboxDetailPage() {
                 </div>
                 {log.events.some((event) => event.eventType === "open_suspected") && (
                   <p className="mt-3 text-xs text-yellow-700">
-                    A suspicious pixel fetch was recorded and ignored for open-rate purposes.
+                    A pixel fetch from a proxy or prefetcher was recorded and ignored for open-rate purposes. Gmail webmail image loads are treated as unverified opens.
                   </p>
                 )}
                 {findHeaderAnalysisEvent(log)?.payload?.analysis && (

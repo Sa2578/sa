@@ -93,6 +93,10 @@ export function classifyOpenTrackingRequest(
     reasons.push("automated_user_agent");
   }
 
+  if (IMAGE_PROXY_USER_AGENT_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+    reasons.push("image_proxy_user_agent");
+  }
+
   if (ageMs !== null && ageMs >= 0 && ageMs < EARLY_OPEN_WINDOW_MS) {
     reasons.push("too_early_after_send");
   }
