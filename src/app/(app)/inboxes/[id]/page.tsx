@@ -160,6 +160,8 @@ export default function InboxDetailPage() {
   const [replyToEmail, setReplyToEmail] = useState("");
   const [verifyingSmtp, setVerifyingSmtp] = useState(false);
   const [smtpMessage, setSmtpMessage] = useState("");
+  const [syncingReplies, setSyncingReplies] = useState(false);
+  const [replySyncMessage, setReplySyncMessage] = useState("");
   const [testRecipient, setTestRecipient] = useState("");
   const [testSubject, setTestSubject] = useState("");
   const [testBody, setTestBody] = useState("");
@@ -190,19 +192,53 @@ export default function InboxDetailPage() {
     if (logsRes.ok) {
       const logData = await logsRes.json();
       setLogs(logData);
-      if (!headerLogId && Array.isArray(logData) && logData.length > 0) {
-        setHeaderLogId(logData[0].id);
+      if (Array.isArray(logData) && logData.length > 0) {
+        setHeaderLogId((current) => current || logData[0].id);
       }
     }
 
     if (healthRes.ok) {
       setHealth(await healthRes.json());
     }
-  }, [headerLogId, id]);
+  }, [id]);
 
   useEffect(() => {
     fetchInbox();
   }, [fetchInbox]);
+
+  const handleSyncReplies = useCallback(
+    async (silent = false) => {
+      setSyncingReplies(true);
+      if (!silent) {
+        setReplySyncMessage("");
+      }
+
+      const res = await fetch(`/api/inboxes/${id}/sync-replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lookbackDays: 21 }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        if (!silent) {
+          setReplySyncMessage(
+            `Reply sync complete. ${data.newReplies || 0} new replies linked, ${data.scannedMessages || 0} messages scanned.`
+          );
+        }
+        await fetchInbox();
+      } else if (!silent) {
+        setReplySyncMessage(data.error || "Unable to sync replies.");
+      }
+
+      setSyncingReplies(false);
+    },
+    [fetchInbox, id]
+  );
+
+  useEffect(() => {
+    handleSyncReplies(true);
+  }, [handleSyncReplies]);
 
   async function handleUpdate() {
     const res = await fetch(`/api/inboxes/${id}`, {
@@ -383,9 +419,14 @@ export default function InboxDetailPage() {
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">SMTP & Sender Identity</h2>
-            <Button size="sm" onClick={handleVerifySmtp} disabled={verifyingSmtp}>
-              {verifyingSmtp ? "Verifying..." : "Verify SMTP"}
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => handleSyncReplies(false)} disabled={syncingReplies}>
+                {syncingReplies ? "Syncing Replies..." : "Sync Replies"}
+              </Button>
+              <Button size="sm" onClick={handleVerifySmtp} disabled={verifyingSmtp}>
+                {verifyingSmtp ? "Verifying..." : "Verify SMTP"}
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -409,6 +450,12 @@ export default function InboxDetailPage() {
 
           {smtpMessage && (
             <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">{smtpMessage}</p>
+          )}
+
+          {replySyncMessage && (
+            <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
+              {replySyncMessage}
+            </p>
           )}
 
           {inbox.smtpLastError && (

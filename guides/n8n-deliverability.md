@@ -21,6 +21,7 @@ https://outbound-crm-koyeb-sa22-ccfdaa62.koyeb.app
 3. n8n invia la mail con il body restituito dal CRM
 4. dopo l'invio, n8n chiama `POST /api/n8n/events`
 5. quando hai gli header Gmail, n8n o un operatore chiama `POST /api/n8n/header-analysis`
+6. per rilevare reply reali sulla mailbox mittente, n8n o l'operatore chiama `POST /api/n8n/sync-replies`
 
 ## 1. Preparare la mail
 
@@ -139,6 +140,25 @@ Placement supportati:
 - `OTHER`
 - `UNKNOWN`
 
+## 5. Sincronizzare le reply reali
+
+Endpoint:
+
+```text
+POST /api/n8n/sync-replies
+```
+
+Esempio:
+
+```json
+{
+  "inboxId": "cmn7zkxrr00021vknpi7ktkke",
+  "lookbackDays": 21
+}
+```
+
+Questo endpoint apre la mailbox via IMAP, legge i messaggi recenti in `INBOX`, controlla `In-Reply-To` e `References`, e collega le risposte ai `Message-ID` delle mail inviate dal CRM.
+
 ## Mapping pratico per n8n
 
 - nodo `HTTP Request` iniziale -> `POST /api/n8n/prepare-send`
@@ -146,6 +166,7 @@ Placement supportati:
 - nodo `HTTP Request` successivo -> `POST /api/n8n/events` con `accepted`
 - eventuale provider webhook o polling -> `POST /api/n8n/events` con `delivered`, `bounce`, `reply`, `spam`
 - eventuale step manuale o Gmail parsing -> `POST /api/n8n/header-analysis`
+- nodo `HTTP Request` schedulato o manuale -> `POST /api/n8n/sync-replies`
 
 ## Cosa vedrai nel CRM
 
@@ -154,6 +175,7 @@ Placement supportati:
 - con `delivered` passa a `DELIVERED`
 - con pixel/link tracciati passa a `OPENED` e `CLICKED`
 - con gli header Gmail vedrai `SPF`, `DKIM`, `DMARC` e `Placement`
+- con il sync IMAP delle risposte il lead passa a `REPLIED`
 
 ## Nota importante
 

@@ -19,7 +19,7 @@ interface EmailEventIdentifiers {
 
 interface RecordEmailEventInput extends EmailEventIdentifiers {
   eventType: DeliverabilityEventType;
-  source: "smtp" | "tracking" | "webhook" | "manual";
+  source: "smtp" | "tracking" | "webhook" | "manual" | "imap";
   occurredAt?: Date;
   payload?: Prisma.InputJsonValue;
   failureReason?: string | null;
@@ -78,12 +78,18 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
   }
 
   const occurredAt = input.occurredAt ?? new Date();
-  const messageId = normalizeMessageId(input.messageId) ?? emailLog.messageId;
-  const providerMessageId = normalizeMessageId(input.providerMessageId) ?? emailLog.providerMessageId;
+  const eventMessageId = normalizeMessageId(input.messageId) ?? emailLog.messageId;
+  const eventProviderMessageId =
+    normalizeMessageId(input.providerMessageId) ?? emailLog.providerMessageId;
+  const shouldUpdateStoredMessageIds = ["accepted", "delivered", "bounce", "failed"].includes(
+    input.eventType
+  );
 
   const emailLogData: Prisma.EmailLogUpdateInput = {
-    messageId,
-    providerMessageId,
+    messageId: shouldUpdateStoredMessageIds ? eventMessageId : emailLog.messageId,
+    providerMessageId: shouldUpdateStoredMessageIds
+      ? eventProviderMessageId
+      : emailLog.providerMessageId,
     latestEventType: input.eventType,
     lastEventAt: occurredAt,
   };
@@ -147,8 +153,8 @@ export async function recordEmailEvent(input: RecordEmailEventInput) {
         eventType: input.eventType,
         source: input.source,
         occurredAt,
-        messageId,
-        providerMessageId,
+        messageId: eventMessageId,
+        providerMessageId: eventProviderMessageId,
         payload: input.payload,
       },
     }),
