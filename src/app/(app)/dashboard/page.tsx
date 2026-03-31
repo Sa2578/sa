@@ -8,6 +8,9 @@ interface DashboardData {
     totalSent: number;
     bounceRate: number;
     openRate: number;
+    verifiedOpenRate: number;
+    clickRate: number;
+    proxyOpenRate: number;
     spamRate: number;
     healthScore: number;
   };
@@ -29,7 +32,20 @@ export default function DashboardPage() {
         fetch("/api/campaigns"),
       ]);
 
-      const metData = metRes.ok ? await metRes.json() : { metrics: { totalSent: 0, bounceRate: 0, openRate: 0, spamRate: 0, healthScore: 100 } };
+      const metData = metRes.ok
+        ? await metRes.json()
+        : {
+            metrics: {
+              totalSent: 0,
+              bounceRate: 0,
+              openRate: 0,
+              verifiedOpenRate: 0,
+              clickRate: 0,
+              proxyOpenRate: 0,
+              spamRate: 0,
+              healthScore: 100,
+            },
+          };
       const domains = domRes.ok ? await domRes.json() : [];
       const inboxes = inbRes.ok ? await inbRes.json() : [];
       const campaigns = campRes.ok ? await campRes.json() : [];
@@ -72,14 +88,16 @@ export default function DashboardPage() {
           trend={metrics.bounceRate < 5 ? "up" : metrics.bounceRate < 10 ? "neutral" : "down"}
         />
         <StatsCard
-          title="Open Rate"
-          value={`${metrics.openRate}%`}
-          trend={metrics.openRate > 30 ? "up" : metrics.openRate > 15 ? "neutral" : "down"}
+          title="Click Rate"
+          value={`${metrics.clickRate}%`}
+          subtitle="Primary engagement signal"
+          trend={metrics.clickRate > 5 ? "up" : metrics.clickRate > 1 ? "neutral" : "down"}
         />
         <StatsCard
-          title="Spam Rate"
-          value={`${metrics.spamRate}%`}
-          trend={metrics.spamRate < 1 ? "up" : metrics.spamRate < 3 ? "neutral" : "down"}
+          title="Proxy Fetches"
+          value={`${metrics.proxyOpenRate}%`}
+          subtitle="Ignored as opens"
+          trend={metrics.proxyOpenRate < 20 ? "up" : "neutral"}
         />
       </div>
     </div>

@@ -12,6 +12,9 @@ export interface DeliverabilityMetrics {
   totalSent: number;
   bounceRate: number;
   openRate: number;
+  verifiedOpenRate: number;
+  clickRate: number;
+  proxyOpenRate: number;
   spamRate: number;
   replyRate: number;
   sendingVolume: number;
@@ -35,35 +38,6 @@ function buildEmailLogWhere(options: {
   const where: Record<string, unknown> = {
     sentAt: { gte: since },
     status: { not: "QUEUED" },
-  };
-
-  if (inboxId) {
-    where.inboxId = inboxId;
-  }
-
-  const inboxWhere: Record<string, unknown> = {};
-  if (domainId) {
-    inboxWhere.domainId = domainId;
-  }
-  if (userId) {
-    inboxWhere.domain = { userId };
-  }
-  if (Object.keys(inboxWhere).length > 0) {
-    where.inbox = inboxWhere;
-  }
-
-  return where;
-}
-
-function buildReplyLogWhere(options: {
-  userId?: string;
-  domainId?: string;
-  inboxId?: string;
-  since: Date;
-}) {
-  const { userId, domainId, inboxId, since } = options;
-  const where: Record<string, unknown> = {
-    sentAt: { gte: since },
   };
 
   if (inboxId) {
@@ -131,38 +105,30 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
     since,
   });
 
-  const logs = await prisma.emailLog.groupBy({
-    by: ["status"],
+  const logs = await prisma.emailLog.findMany({
     where,
-    _count: { id: true },
-  });
-
-  const counts: Record<string, number> = {};
-  let totalSent = 0;
-  for (const row of logs) {
-    counts[row.status] = row._count.id;
-    totalSent += row._count.id;
-  }
-
-  const repliedCount = await prisma.lead.count({
-    where: {
-      status: "REPLIED",
-      emailLogs: {
-        some: buildReplyLogWhere({
-          userId: options.userId,
-          domainId,
-          inboxId,
-          since,
-        }),
+    select: {
+      id: true,
+      status: true,
+      repliedAt: true,
+      events: {
+        where: { eventType: "open_suspected" },
+        select: { id: true },
+        take: 1,
       },
     },
   });
+
+  const totalSent = logs.length;
 
   if (totalSent === 0) {
     return {
       totalSent: 0,
       bounceRate: 0,
       openRate: 0,
+      verifiedOpenRate: 0,
+      clickRate: 0,
+      proxyOpenRate: 0,
       spamRate: 0,
       replyRate: 0,
       sendingVolume: 0,
@@ -170,22 +136,36 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
     };
   }
 
-  const bounceRate = ((counts["BOUNCED"] || 0) / totalSent) * 100;
-  const openRate = (((counts["OPENED"] || 0) + (counts["CLICKED"] || 0)) / totalSent) * 100;
-  const spamRate = ((counts["SPAM"] || 0) / totalSent) * 100;
+  const bouncedCount = logs.filter((log) => log.status === "BOUNCED").length;
+  const verifiedOpenCount = logs.filter(
+    (log) => log.status === "OPENED" || log.status === "CLICKED"
+  ).length;
+  const clickCount = logs.filter((log) => log.status === "CLICKED").length;
+  const spamCount = logs.filter((log) => log.status === "SPAM").length;
+  const repliedCount = logs.filter((log) => Boolean(log.repliedAt)).length;
+  const proxyOpenCount = logs.filter((log) => log.events.length > 0).length;
+
+  const bounceRate = (bouncedCount / totalSent) * 100;
+  const verifiedOpenRate = (verifiedOpenCount / totalSent) * 100;
+  const clickRate = (clickCount / totalSent) * 100;
+  const proxyOpenRate = (proxyOpenCount / totalSent) * 100;
+  const spamRate = (spamCount / totalSent) * 100;
   const replyRate = (repliedCount / totalSent) * 100;
 
   const healthScore = Math.max(
     0,
-    Math.min(100, 100 - bounceRate * 2 - spamRate * 3 + openRate * 1.5)
+    Math.min(100, 100 - bounceRate * 2 - spamRate * 3 + clickRate * 1.5 + replyRate * 2)
   );
 
   return {
     totalSent,
     bounceRate: Math.round(bounceRate * 100) / 100,
-    openRate: Math.round(openRate * 100) / 100,
+    openRate: Math.round(verifiedOpenRate * 100) / 100,
+    verifiedOpenRate: Math.round(verifiedOpenRate * 100) / 100,
+    clickRate: Math.round(clickRate * 100) / 100,
+    proxyOpenRate: Math.round(proxyOpenRate * 100) / 100,
     spamRate: Math.round(spamRate * 100) / 100,
-    replyRate,
+    replyRate: Math.round(replyRate * 100) / 100,
     sendingVolume: totalSent,
     healthScore: Math.round(healthScore * 100) / 100,
   };
@@ -210,19 +190,47 @@ export async function getMetricsOverTime(options: {
 
   const logs = await prisma.emailLog.findMany({
     where,
-    select: { status: true, sentAt: true },
+    select: {
+      status: true,
+      sentAt: true,
+      repliedAt: true,
+      events: {
+        where: { eventType: "open_suspected" },
+        select: { id: true },
+        take: 1,
+      },
+    },
     orderBy: { sentAt: "asc" },
   });
 
-  const dailyMap = new Map<string, { total: number; bounced: number; opened: number; spam: number }>();
+  const dailyMap = new Map<
+    string,
+    {
+      total: number;
+      bounced: number;
+      verifiedOpened: number;
+      clicked: number;
+      proxyOpened: number;
+      spam: number;
+    }
+  >();
 
   for (const log of logs) {
     if (!log.sentAt) continue;
     const day = log.sentAt.toISOString().split("T")[0];
-    const entry = dailyMap.get(day) || { total: 0, bounced: 0, opened: 0, spam: 0 };
+    const entry = dailyMap.get(day) || {
+      total: 0,
+      bounced: 0,
+      verifiedOpened: 0,
+      clicked: 0,
+      proxyOpened: 0,
+      spam: 0,
+    };
     entry.total++;
     if (log.status === "BOUNCED") entry.bounced++;
-    if (log.status === "OPENED" || log.status === "CLICKED") entry.opened++;
+    if (log.status === "OPENED" || log.status === "CLICKED") entry.verifiedOpened++;
+    if (log.status === "CLICKED") entry.clicked++;
+    if (log.events.length > 0) entry.proxyOpened++;
     if (log.status === "SPAM") entry.spam++;
     dailyMap.set(day, entry);
   }
@@ -233,13 +241,26 @@ export async function getMetricsOverTime(options: {
 
   while (cursor <= new Date()) {
     const date = cursor.toISOString().split("T")[0];
-    const data = dailyMap.get(date) || { total: 0, bounced: 0, opened: 0, spam: 0 };
+    const data = dailyMap.get(date) || {
+      total: 0,
+      bounced: 0,
+      verifiedOpened: 0,
+      clicked: 0,
+      proxyOpened: 0,
+      spam: 0,
+    };
 
     points.push({
       date,
       volume: data.total,
       bounceRate: data.total > 0 ? Math.round((data.bounced / data.total) * 10000) / 100 : 0,
-      openRate: data.total > 0 ? Math.round((data.opened / data.total) * 10000) / 100 : 0,
+      openRate:
+        data.total > 0 ? Math.round((data.verifiedOpened / data.total) * 10000) / 100 : 0,
+      verifiedOpenRate:
+        data.total > 0 ? Math.round((data.verifiedOpened / data.total) * 10000) / 100 : 0,
+      clickRate: data.total > 0 ? Math.round((data.clicked / data.total) * 10000) / 100 : 0,
+      proxyOpenRate:
+        data.total > 0 ? Math.round((data.proxyOpened / data.total) * 10000) / 100 : 0,
       spamRate: data.total > 0 ? Math.round((data.spam / data.total) * 10000) / 100 : 0,
     });
 

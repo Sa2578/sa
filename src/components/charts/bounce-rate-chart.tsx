@@ -14,7 +14,8 @@ import {
 interface DataPoint {
   date: string;
   bounceRate: number;
-  openRate: number;
+  clickRate: number;
+  proxyOpenRate: number;
   spamRate: number;
 }
 
@@ -36,9 +37,16 @@ export function BounceRateChart({ data }: { data: DataPoint[] }) {
         />
         <Line
           type="monotone"
-          dataKey="openRate"
-          stroke="#22c55e"
-          name="Open Rate"
+          dataKey="clickRate"
+          stroke="#2563eb"
+          name="Click Rate"
+          strokeWidth={2}
+        />
+        <Line
+          type="monotone"
+          dataKey="proxyOpenRate"
+          stroke="#eab308"
+          name="Proxy Fetch Rate"
           strokeWidth={2}
         />
         <Line

@@ -12,6 +12,9 @@ interface Metrics {
   totalSent: number;
   bounceRate: number;
   openRate: number;
+  verifiedOpenRate: number;
+  clickRate: number;
+  proxyOpenRate: number;
   spamRate: number;
   replyRate: number;
   healthScore: number;
@@ -22,6 +25,9 @@ interface TimeSeriesPoint {
   volume: number;
   bounceRate: number;
   openRate: number;
+  verifiedOpenRate: number;
+  clickRate: number;
+  proxyOpenRate: number;
   spamRate: number;
 }
 
@@ -96,7 +102,18 @@ export default function DeliverabilityPage() {
         </Card>
       )}
 
-      <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
+      <Card className="mb-6 border-yellow-200 bg-yellow-50">
+        <h2 className="mb-2 text-lg font-semibold text-yellow-900">Open Tracking Note</h2>
+        <p className="text-sm text-yellow-800">
+          Webmail clients like Gmail often fetch images through a proxy, so pixel opens are not a reliable source of truth.
+          Use click and reply rates as the primary engagement signals.
+        </p>
+        <p className="mt-2 text-sm text-yellow-800">
+          Current period proxy fetch rate: <strong>{metrics.proxyOpenRate}%</strong>
+        </p>
+      </Card>
+
+      <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-6">
         <StatsCard
           title="Health Score"
           value={`${metrics.healthScore}%`}
@@ -109,9 +126,21 @@ export default function DeliverabilityPage() {
           trend={metrics.bounceRate < 5 ? "up" : "down"}
         />
         <StatsCard
-          title="Open Rate"
-          value={`${metrics.openRate}%`}
-          trend={metrics.openRate > 30 ? "up" : "neutral"}
+          title="Verified Opens"
+          value={`${metrics.verifiedOpenRate}%`}
+          subtitle="Native clients only"
+          trend={metrics.verifiedOpenRate > 15 ? "up" : "neutral"}
+        />
+        <StatsCard
+          title="Click Rate"
+          value={`${metrics.clickRate}%`}
+          trend={metrics.clickRate > 5 ? "up" : metrics.clickRate > 1 ? "neutral" : "down"}
+        />
+        <StatsCard
+          title="Proxy Fetches"
+          value={`${metrics.proxyOpenRate}%`}
+          subtitle="Ignored as opens"
+          trend={metrics.proxyOpenRate < 20 ? "up" : "neutral"}
         />
         <StatsCard
           title="Spam Rate"
