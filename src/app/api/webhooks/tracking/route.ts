@@ -101,6 +101,37 @@ function buildTransparentPixel() {
   );
 }
 
+async function recordTrackingSignal(options: {
+  emailLogId: string;
+  eventType: "open_proxy" | "open_suspected";
+  messageId?: string | null;
+  providerMessageId?: string | null;
+  payload: Prisma.InputJsonValue;
+}) {
+  const occurredAt = new Date();
+
+  await prisma.$transaction([
+    prisma.emailLog.update({
+      where: { id: options.emailLogId },
+      data: {
+        latestEventType: options.eventType,
+        lastEventAt: occurredAt,
+      },
+    }),
+    prisma.emailEvent.create({
+      data: {
+        emailLogId: options.emailLogId,
+        eventType: options.eventType,
+        source: "tracking",
+        occurredAt,
+        messageId: options.messageId,
+        providerMessageId: options.providerMessageId,
+        payload: options.payload,
+      },
+    }),
+  ]);
+}
+
 async function findEmailLogForTracking(identifiers: {
   logId?: string;
   messageId?: string;
@@ -184,22 +215,22 @@ export async function GET(req: Request) {
       const classification = classifyOpenTrackingRequest(req, emailLog.sentAt);
 
       if (classification.suspicious) {
-        await prisma.emailEvent.create({
-          data: {
-            emailLogId: emailLog.id,
-            eventType: "open_suspected",
-            source: "tracking",
-            occurredAt: new Date(),
-            messageId: emailLog.messageId,
-            providerMessageId: emailLog.providerMessageId,
-            payload: {
-              ...payload,
-              openClassification: {
-                suspicious: true,
-                reasons: classification.reasons,
-              },
-            } as unknown as Prisma.InputJsonValue,
-          },
+        const isProxyOnlyClassification = classification.reasons.every(
+          (reason) => reason === "image_proxy_user_agent" || reason === "early_image_proxy_fetch"
+        );
+
+        await recordTrackingSignal({
+          emailLogId: emailLog.id,
+          eventType: isProxyOnlyClassification ? "open_proxy" : "open_suspected",
+          messageId: emailLog.messageId,
+          providerMessageId: emailLog.providerMessageId,
+          payload: {
+            ...payload,
+            openClassification: {
+              suspicious: true,
+              reasons: classification.reasons,
+            },
+          } as unknown as Prisma.InputJsonValue,
         });
       } else {
         await recordEmailEvent({

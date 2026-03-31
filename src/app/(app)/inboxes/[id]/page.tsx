@@ -89,6 +89,8 @@ function getEventColor(eventType?: string | null) {
       return "green";
     case "open":
       return "green";
+    case "open_proxy":
+      return "yellow";
     case "open_suspected":
       return "yellow";
     case "click":
@@ -627,6 +629,11 @@ export default function InboxDetailPage() {
                   ))}
                   {log.events.length === 0 && <Badge color="gray">No events yet</Badge>}
                 </div>
+                {log.events.some((event) => event.eventType === "open_proxy") && (
+                  <p className="mt-3 text-xs text-yellow-700">
+                    This message was fetched through a webmail image proxy. It is a likely open, but not counted as a verified open.
+                  </p>
+                )}
                 {log.events.some((event) => event.eventType === "open_suspected") && (
                   <p className="mt-3 text-xs text-yellow-700">
                     A pixel fetch from a proxy or prefetcher was recorded and ignored for open-rate purposes. Gmail webmail image loads are treated as unverified opens.

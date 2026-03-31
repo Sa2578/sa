@@ -112,7 +112,7 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
       status: true,
       repliedAt: true,
       events: {
-        where: { eventType: "open_suspected" },
+        where: { eventType: { in: ["open_suspected", "open_proxy"] } },
         select: { id: true },
         take: 1,
       },
@@ -195,7 +195,7 @@ export async function getMetricsOverTime(options: {
       sentAt: true,
       repliedAt: true,
       events: {
-        where: { eventType: "open_suspected" },
+        where: { eventType: { in: ["open_suspected", "open_proxy"] } },
         select: { id: true },
         take: 1,
       },
