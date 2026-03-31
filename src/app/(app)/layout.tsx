@@ -24,13 +24,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!checked) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-slate-400">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen text-gray-900 dark:text-slate-100">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8">{children}</main>
     </div>
