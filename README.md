@@ -47,6 +47,8 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/outbound_crm"
 REDIS_URL="redis://localhost:6379"
 NEXTAUTH_SECRET="change-me-to-a-random-secret-in-production"
 NEXTAUTH_URL="http://localhost:3000"
+WEBHOOK_SECRET="set-a-shared-secret-for-provider-webhooks"
+MAINTENANCE_SECRET="set-a-separate-secret-for-cron-and-maintenance-routes"
 ```
 
 On Render, the web service can use the platform-provided `RENDER_EXTERNAL_URL` automatically if `NEXTAUTH_URL` is not set. The background worker still needs `NEXTAUTH_URL`, and the included [render.yaml](./render.yaml) wires it from the web service automatically.
@@ -106,6 +108,9 @@ After the first deploy:
 - `/api/inboxes/[id]/send-test`
 - `/api/inboxes/[id]/logs`
 - `/api/deliverability/header-analysis`
+- `/api/maintenance/reply-sync`
+- `/api/maintenance/dns-refresh`
+- `/api/webhooks/providers/[provider]`
 
 ## Operational Notes
 
@@ -114,10 +119,12 @@ After the first deploy:
 - `sentToday` is synchronized against the day's email logs, so it stays aligned with actual send attempts.
 - Deliverability alerts are refreshed when the deliverability endpoints are requested.
 - Email links are wrapped for click tracking, and webhook events can update delivered, bounce, spam, and reply states.
+- Provider-native webhook normalization is available for SendGrid, Mailgun, Postmark, Resend, and AWS SES.
 - Domain detail pages can run real DNS checks and persist the latest SPF/DKIM/DMARC/MX results.
 - Inbox detail pages can verify SMTP, send a one-off real test email, show recent event trails, and analyze pasted Gmail raw headers.
 - For real open/click tracking, `NEXTAUTH_URL` must be a public HTTPS URL. `http://localhost:3000` is fine for local development but not for production mailbox telemetry.
 - On Render, the web app can infer its public URL from `RENDER_EXTERNAL_URL`, and the included Blueprint passes that URL to the worker as `NEXTAUTH_URL`.
+- Scheduled deliverability maintenance can be driven by GitHub Actions through the included workflows and maintenance routes.
 
 ## CSV Format
 
@@ -156,8 +163,10 @@ It checks:
 - runtime dependency health endpoint
 - tracked link wrapping and open pixel support
 - webhook secret support for provider callbacks
+- maintenance-secret support for cron-style DNS refresh and reply sync
 - SMTP verification endpoint for inbox diagnostics
 - reply, delivered, spam, bounce, open, and click event ingestion
+- provider webhook normalization for SendGrid, Mailgun, Postmark, Resend, and SES
 - duplicate filtering during CSV lead imports
 
 ## Troubleshooting

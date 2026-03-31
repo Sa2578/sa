@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, StatsCard } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Table } from "@/components/ui/table";
 import { VolumeChart } from "@/components/charts/volume-chart";
 import { BounceRateChart } from "@/components/charts/bounce-rate-chart";
 import { HealthTrendChart } from "@/components/charts/health-trend-chart";
@@ -17,6 +18,11 @@ interface Metrics {
   proxyOpenRate: number;
   spamRate: number;
   replyRate: number;
+  placementSampleSize: number;
+  placementCoverageRate: number;
+  inboxPlacementRate: number;
+  promotionsPlacementRate: number;
+  spamPlacementRate: number;
   healthScore: number;
 }
 
@@ -37,6 +43,19 @@ interface DomainMetric {
   metrics: Metrics;
 }
 
+interface InboxMetric {
+  id: string;
+  emailAddress: string;
+  metrics: Metrics;
+}
+
+interface CampaignMetric {
+  id: string;
+  name: string;
+  isSystem: boolean;
+  metrics: Metrics;
+}
+
 interface Alert {
   id: string;
   type: string;
@@ -50,6 +69,8 @@ export default function DeliverabilityPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
   const [domainMetrics, setDomainMetrics] = useState<DomainMetric[]>([]);
+  const [inboxMetrics, setInboxMetrics] = useState<InboxMetric[]>([]);
+  const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetric[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -63,6 +84,8 @@ export default function DeliverabilityPage() {
       setMetrics(data.metrics);
       setTimeSeries(data.timeSeries);
       setDomainMetrics(data.domainMetrics);
+      setInboxMetrics(data.inboxMetrics);
+      setCampaignMetrics(data.campaignMetrics);
     }
     if (alertRes.ok) setAlerts(await alertRes.json());
   }, [days]);
@@ -109,11 +132,14 @@ export default function DeliverabilityPage() {
           Use click and reply rates as the primary engagement signals.
         </p>
         <p className="mt-2 text-sm text-yellow-800">
-          Current period proxy fetch rate: <strong>{metrics.proxyOpenRate}%</strong>
+          Current period proxy fetch rate: <strong>{metrics.proxyOpenRate}%</strong>. Verified opens are <strong>{metrics.verifiedOpenRate}%</strong>.
+        </p>
+        <p className="mt-2 text-sm text-yellow-800">
+          Placement coverage is <strong>{metrics.placementCoverageRate}%</strong> across <strong>{metrics.placementSampleSize}</strong> sampled messages.
         </p>
       </Card>
 
-      <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <StatsCard
           title="Health Score"
           value={`${metrics.healthScore}%`}
@@ -126,26 +152,31 @@ export default function DeliverabilityPage() {
           trend={metrics.bounceRate < 5 ? "up" : "down"}
         />
         <StatsCard
-          title="Verified Opens"
-          value={`${metrics.verifiedOpenRate}%`}
-          subtitle="Native clients only"
-          trend={metrics.verifiedOpenRate > 15 ? "up" : "neutral"}
-        />
-        <StatsCard
           title="Click Rate"
           value={`${metrics.clickRate}%`}
           trend={metrics.clickRate > 5 ? "up" : metrics.clickRate > 1 ? "neutral" : "down"}
         />
         <StatsCard
-          title="Proxy Fetches"
-          value={`${metrics.proxyOpenRate}%`}
-          subtitle="Ignored as opens"
-          trend={metrics.proxyOpenRate < 20 ? "up" : "neutral"}
+          title="Reply Rate"
+          value={`${metrics.replyRate}%`}
+          trend={metrics.replyRate > 3 ? "up" : metrics.replyRate > 0 ? "neutral" : "down"}
         />
         <StatsCard
           title="Spam Rate"
           value={`${metrics.spamRate}%`}
           trend={metrics.spamRate < 1 ? "up" : "down"}
+        />
+        <StatsCard
+          title="Inbox Placement"
+          value={`${metrics.inboxPlacementRate}%`}
+          subtitle="Among sampled messages"
+          trend={metrics.inboxPlacementRate >= 80 ? "up" : metrics.inboxPlacementRate >= 50 ? "neutral" : "down"}
+        />
+        <StatsCard
+          title="Placement Coverage"
+          value={`${metrics.placementCoverageRate}%`}
+          subtitle={`${metrics.placementSampleSize} samples`}
+          trend={metrics.placementCoverageRate >= 20 ? "up" : "neutral"}
         />
       </div>
 
@@ -171,6 +202,102 @@ export default function DeliverabilityPage() {
           />
         </Card>
       )}
+
+      <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Card>
+          <h3 className="mb-4 text-lg font-semibold">Inbox Breakdown</h3>
+          <Table
+            data={inboxMetrics
+              .filter((item) => item.metrics.totalSent > 0)
+              .sort((left, right) => right.metrics.totalSent - left.metrics.totalSent)}
+            emptyMessage="No inbox deliverability data yet"
+            columns={[
+              {
+                key: "emailAddress",
+                header: "Inbox",
+              },
+              {
+                key: "healthScore",
+                header: "Health",
+                render: (item) => `${item.metrics.healthScore}%`,
+              },
+              {
+                key: "bounceRate",
+                header: "Bounce",
+                render: (item) => `${item.metrics.bounceRate}%`,
+              },
+              {
+                key: "clickRate",
+                header: "Click",
+                render: (item) => `${item.metrics.clickRate}%`,
+              },
+              {
+                key: "replyRate",
+                header: "Reply",
+                render: (item) => `${item.metrics.replyRate}%`,
+              },
+              {
+                key: "inboxPlacementRate",
+                header: "Inbox Place.",
+                render: (item) =>
+                  item.metrics.placementSampleSize > 0
+                    ? `${item.metrics.inboxPlacementRate}%`
+                    : "No sample",
+              },
+            ]}
+          />
+        </Card>
+
+        <Card>
+          <h3 className="mb-4 text-lg font-semibold">Campaign Breakdown</h3>
+          <Table
+            data={campaignMetrics
+              .filter((item) => item.metrics.totalSent > 0)
+              .sort((left, right) => right.metrics.totalSent - left.metrics.totalSent)}
+            emptyMessage="No campaign deliverability data yet"
+            columns={[
+              {
+                key: "name",
+                header: "Campaign",
+                render: (item) => (
+                  <div className="flex items-center gap-2">
+                    <span>{item.name}</span>
+                    {item.isSystem && <Badge color="gray">system</Badge>}
+                  </div>
+                ),
+              },
+              {
+                key: "healthScore",
+                header: "Health",
+                render: (item) => `${item.metrics.healthScore}%`,
+              },
+              {
+                key: "bounceRate",
+                header: "Bounce",
+                render: (item) => `${item.metrics.bounceRate}%`,
+              },
+              {
+                key: "clickRate",
+                header: "Click",
+                render: (item) => `${item.metrics.clickRate}%`,
+              },
+              {
+                key: "replyRate",
+                header: "Reply",
+                render: (item) => `${item.metrics.replyRate}%`,
+              },
+              {
+                key: "inboxPlacementRate",
+                header: "Inbox Place.",
+                render: (item) =>
+                  item.metrics.placementSampleSize > 0
+                    ? `${item.metrics.inboxPlacementRate}%`
+                    : "No sample",
+              },
+            ]}
+          />
+        </Card>
+      </div>
     </div>
   );
 }

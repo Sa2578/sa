@@ -17,6 +17,11 @@ export interface DeliverabilityMetrics {
   proxyOpenRate: number;
   spamRate: number;
   replyRate: number;
+  placementSampleSize: number;
+  placementCoverageRate: number;
+  inboxPlacementRate: number;
+  promotionsPlacementRate: number;
+  spamPlacementRate: number;
   sendingVolume: number;
   healthScore: number;
 }
@@ -25,6 +30,7 @@ interface DeliverabilityScope {
   userId?: string;
   domainId?: string;
   inboxId?: string;
+  campaignId?: string;
   days?: number;
 }
 
@@ -32,9 +38,10 @@ function buildEmailLogWhere(options: {
   userId?: string;
   domainId?: string;
   inboxId?: string;
+  campaignId?: string;
   since: Date;
 }) {
-  const { userId, domainId, inboxId, since } = options;
+  const { userId, domainId, inboxId, campaignId, since } = options;
   const where: Record<string, unknown> = {
     sentAt: { gte: since },
     status: { not: "QUEUED" },
@@ -42,6 +49,9 @@ function buildEmailLogWhere(options: {
 
   if (inboxId) {
     where.inboxId = inboxId;
+  }
+  if (campaignId) {
+    where.campaignId = campaignId;
   }
 
   const inboxWhere: Record<string, unknown> = {};
@@ -94,7 +104,7 @@ async function resolveAlert(id: string) {
 }
 
 export async function getMetrics(options: DeliverabilityScope): Promise<DeliverabilityMetrics> {
-  const { domainId, inboxId, days = 30 } = options;
+  const { domainId, inboxId, campaignId, days = 30 } = options;
   const since = new Date();
   since.setDate(since.getDate() - days);
 
@@ -102,6 +112,7 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
     userId: options.userId,
     domainId,
     inboxId,
+    campaignId,
     since,
   });
 
@@ -112,9 +123,8 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
       status: true,
       repliedAt: true,
       events: {
-        where: { eventType: { in: ["open_suspected", "open_proxy"] } },
-        select: { id: true },
-        take: 1,
+        where: { eventType: { in: ["open_suspected", "open_proxy", "header_analysis"] } },
+        select: { eventType: true, payload: true },
       },
     },
   });
@@ -131,6 +141,11 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
       proxyOpenRate: 0,
       spamRate: 0,
       replyRate: 0,
+      placementSampleSize: 0,
+      placementCoverageRate: 0,
+      inboxPlacementRate: 0,
+      promotionsPlacementRate: 0,
+      spamPlacementRate: 0,
       sendingVolume: 0,
       healthScore: 100,
     };
@@ -143,7 +158,28 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
   const clickCount = logs.filter((log) => log.status === "CLICKED").length;
   const spamCount = logs.filter((log) => log.status === "SPAM").length;
   const repliedCount = logs.filter((log) => Boolean(log.repliedAt)).length;
-  const proxyOpenCount = logs.filter((log) => log.events.length > 0).length;
+  const proxyOpenCount = logs.filter((log) =>
+    log.events.some((event) => event.eventType === "open_suspected" || event.eventType === "open_proxy")
+  ).length;
+
+  const placementValues = logs
+    .map((log) => {
+      const placementEvent = log.events.find((event) => event.eventType === "header_analysis");
+      if (!placementEvent || !placementEvent.payload || typeof placementEvent.payload !== "object") {
+        return null;
+      }
+
+      const payload = placementEvent.payload as { placement?: unknown };
+      return typeof payload.placement === "string" ? payload.placement : null;
+    })
+    .filter((placement): placement is string => Boolean(placement && placement !== "UNKNOWN"));
+
+  const placementSampleSize = placementValues.length;
+  const inboxPlacementCount = placementValues.filter((placement) => placement === "INBOX").length;
+  const promotionsPlacementCount = placementValues.filter(
+    (placement) => placement === "PROMOTIONS"
+  ).length;
+  const spamPlacementCount = placementValues.filter((placement) => placement === "SPAM").length;
 
   const bounceRate = (bouncedCount / totalSent) * 100;
   const verifiedOpenRate = (verifiedOpenCount / totalSent) * 100;
@@ -151,10 +187,26 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
   const proxyOpenRate = (proxyOpenCount / totalSent) * 100;
   const spamRate = (spamCount / totalSent) * 100;
   const replyRate = (repliedCount / totalSent) * 100;
+  const placementCoverageRate = (placementSampleSize / totalSent) * 100;
+  const inboxPlacementRate =
+    placementSampleSize > 0 ? (inboxPlacementCount / placementSampleSize) * 100 : 0;
+  const promotionsPlacementRate =
+    placementSampleSize > 0 ? (promotionsPlacementCount / placementSampleSize) * 100 : 0;
+  const spamPlacementRate =
+    placementSampleSize > 0 ? (spamPlacementCount / placementSampleSize) * 100 : 0;
 
   const healthScore = Math.max(
     0,
-    Math.min(100, 100 - bounceRate * 2 - spamRate * 3 + clickRate * 1.5 + replyRate * 2)
+    Math.min(
+      100,
+      100 -
+        bounceRate * 2 -
+        spamRate * 3 -
+        spamPlacementRate * 1.5 +
+        clickRate * 1.5 +
+        replyRate * 2 +
+        inboxPlacementRate * 0.2
+    )
   );
 
   return {
@@ -166,6 +218,11 @@ export async function getMetrics(options: DeliverabilityScope): Promise<Delivera
     proxyOpenRate: Math.round(proxyOpenRate * 100) / 100,
     spamRate: Math.round(spamRate * 100) / 100,
     replyRate: Math.round(replyRate * 100) / 100,
+    placementSampleSize,
+    placementCoverageRate: Math.round(placementCoverageRate * 100) / 100,
+    inboxPlacementRate: Math.round(inboxPlacementRate * 100) / 100,
+    promotionsPlacementRate: Math.round(promotionsPlacementRate * 100) / 100,
+    spamPlacementRate: Math.round(spamPlacementRate * 100) / 100,
     sendingVolume: totalSent,
     healthScore: Math.round(healthScore * 100) / 100,
   };
@@ -175,9 +232,10 @@ export async function getMetricsOverTime(options: {
   userId?: string;
   domainId?: string;
   inboxId?: string;
+  campaignId?: string;
   days?: number;
 }) {
-  const { domainId, inboxId, days = 30 } = options;
+  const { domainId, inboxId, campaignId, days = 30 } = options;
   const since = new Date();
   since.setDate(since.getDate() - days);
 
@@ -185,6 +243,7 @@ export async function getMetricsOverTime(options: {
     userId: options.userId,
     domainId,
     inboxId,
+    campaignId,
     since,
   });
 
@@ -340,6 +399,44 @@ export async function checkAndCreateAlerts(options: { userId?: string } = {}) {
         message: `Domain ${domain.domainName} health score is ${metrics.healthScore}`,
         entityType: "domain",
         entityId: domain.id,
+      });
+    } else {
+      await resolveAlert(healthAlertId);
+    }
+  }
+
+  const campaigns = await prisma.campaign.findMany({
+    where: {
+      ...(options.userId ? { userId: options.userId } : {}),
+      emailLogs: {
+        some: {
+          sentAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+    },
+  });
+
+  for (const campaign of campaigns) {
+    const metrics = await getMetrics({
+      userId: options.userId,
+      campaignId: campaign.id,
+      days: 7,
+    });
+
+    const healthAlertId = `campaign-health-${campaign.id}`;
+    if (metrics.totalSent >= 10 && metrics.healthScore < HEALTH_SCORE_WARNING) {
+      await upsertAlert({
+        id: healthAlertId,
+        type: "LOW_CAMPAIGN_HEALTH",
+        severity: metrics.healthScore < HEALTH_SCORE_CRITICAL ? "critical" : "warning",
+        message: `Campaign ${campaign.name} health score is ${metrics.healthScore}`,
+        entityType: "campaign",
+        entityId: campaign.id,
       });
     } else {
       await resolveAlert(healthAlertId);

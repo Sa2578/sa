@@ -252,3 +252,61 @@ export async function runDomainDnsCheck(options: {
     result,
   };
 }
+
+export async function runDomainDnsCheckBatch(options: {
+  userId?: string;
+  domainIds?: string[];
+  maxDomains?: number;
+}) {
+  const domains = await prisma.domain.findMany({
+    where: {
+      ...(options.userId ? { userId: options.userId } : {}),
+      ...(options.domainIds?.length ? { id: { in: options.domainIds } } : {}),
+    },
+    select: {
+      id: true,
+      domainName: true,
+      userId: true,
+    },
+    orderBy: { createdAt: "asc" },
+    take: options.maxDomains,
+  });
+
+  const results = [];
+
+  for (const domain of domains) {
+    try {
+      const result = await runDomainDnsCheck({
+        domainId: domain.id,
+        userId: domain.userId,
+      });
+
+      results.push({
+        domainId: domain.id,
+        domainName: domain.domainName,
+        success: true,
+        spfValid: result.result.spfValid,
+        dkimValid: result.result.dkimValid,
+        dmarcValid: result.result.dmarcValid,
+        mxValid: result.result.mxValid,
+        warnings: result.result.warnings,
+        errors: result.result.errors,
+      });
+    } catch (error) {
+      results.push({
+        domainId: domain.id,
+        domainName: domain.domainName,
+        success: false,
+        error: error instanceof Error ? error.message : "Unable to run DNS check",
+      });
+    }
+  }
+
+  return {
+    success: results.every((result) => result.success),
+    totalDomains: domains.length,
+    succeededDomains: results.filter((result) => result.success).length,
+    failedDomains: results.filter((result) => !result.success).length,
+    results,
+  };
+}

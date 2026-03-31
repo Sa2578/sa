@@ -11,6 +11,14 @@ interface SyncRepliesOptions {
   maxMessages?: number;
 }
 
+interface SyncRepliesBatchOptions {
+  userId?: string;
+  inboxIds?: string[];
+  lookbackDays?: number;
+  maxMessages?: number;
+  maxInboxes?: number;
+}
+
 interface InboxForReplySync {
   id: string;
   emailAddress: string;
@@ -22,6 +30,18 @@ interface InboxForReplySync {
     domainName: string;
     userId: string;
   };
+}
+
+export interface ReplySyncBatchInboxResult {
+  inboxId: string;
+  inboxEmailAddress: string;
+  success: boolean;
+  scannedMessages?: number;
+  matchedReplies?: number;
+  newReplies?: number;
+  skippedAlreadySynced?: number;
+  skippedSelfMessages?: number;
+  error?: string;
 }
 
 function normalizeMessageReference(value?: string | null) {
@@ -351,5 +371,62 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
     newReplies,
     skippedAlreadySynced,
     skippedSelfMessages,
+  };
+}
+
+export async function syncReplyBatch(options: SyncRepliesBatchOptions = {}) {
+  const inboxes = await prisma.inbox.findMany({
+    where: {
+      isActive: true,
+      ...(options.userId ? { domain: { userId: options.userId } } : {}),
+      ...(options.inboxIds?.length ? { id: { in: options.inboxIds } } : {}),
+    },
+    select: {
+      id: true,
+      emailAddress: true,
+    },
+    orderBy: { createdAt: "asc" },
+    take: options.maxInboxes,
+  });
+
+  const results: ReplySyncBatchInboxResult[] = [];
+
+  for (const inbox of inboxes) {
+    try {
+      const result = await syncInboxReplies({
+        userId: options.userId,
+        inboxId: inbox.id,
+        lookbackDays: options.lookbackDays,
+        maxMessages: options.maxMessages,
+      });
+
+      results.push({
+        inboxId: result.inboxId,
+        inboxEmailAddress: result.inboxEmailAddress,
+        success: true,
+        scannedMessages: result.scannedMessages,
+        matchedReplies: result.matchedReplies,
+        newReplies: result.newReplies,
+        skippedAlreadySynced: result.skippedAlreadySynced,
+        skippedSelfMessages: result.skippedSelfMessages,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to sync replies";
+      results.push({
+        inboxId: inbox.id,
+        inboxEmailAddress: inbox.emailAddress,
+        success: false,
+        error: message,
+      });
+    }
+  }
+
+  return {
+    success: results.every((result) => result.success),
+    totalInboxes: inboxes.length,
+    succeededInboxes: results.filter((result) => result.success).length,
+    failedInboxes: results.filter((result) => !result.success).length,
+    newReplies: results.reduce((total, result) => total + (result.newReplies ?? 0), 0),
+    results,
   };
 }

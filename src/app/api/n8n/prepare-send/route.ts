@@ -189,6 +189,49 @@ export async function POST(req: Request) {
         headers: {
           "X-OutboundCRM-Log-Id": emailLog.id,
           "X-OutboundCRM-Campaign-Id": campaign.id,
+          "X-OutboundCRM-Inbox-Id": inbox.id,
+        },
+      },
+      providerHints: {
+        metadata: {
+          outboundcrm_log_id: emailLog.id,
+          outboundcrm_campaign_id: campaign.id,
+          outboundcrm_inbox_id: inbox.id,
+        },
+        sendgrid: {
+          customArgs: {
+            outboundcrm_log_id: emailLog.id,
+            outboundcrm_campaign_id: campaign.id,
+            outboundcrm_inbox_id: inbox.id,
+          },
+        },
+        mailgun: {
+          variables: {
+            outboundcrm_log_id: emailLog.id,
+            outboundcrm_campaign_id: campaign.id,
+            outboundcrm_inbox_id: inbox.id,
+          },
+        },
+        postmark: {
+          metadata: {
+            outboundcrm_log_id: emailLog.id,
+            outboundcrm_campaign_id: campaign.id,
+            outboundcrm_inbox_id: inbox.id,
+          },
+        },
+        resend: {
+          tags: [
+            { name: "outboundcrm_log_id", value: emailLog.id },
+            { name: "outboundcrm_campaign_id", value: campaign.id },
+            { name: "outboundcrm_inbox_id", value: inbox.id },
+          ],
+        },
+        ses: {
+          emailTags: [
+            { Name: "outboundcrm_log_id", Value: emailLog.id },
+            { Name: "outboundcrm_campaign_id", Value: campaign.id },
+            { Name: "outboundcrm_inbox_id", Value: inbox.id },
+          ],
         },
       },
       tracking: {

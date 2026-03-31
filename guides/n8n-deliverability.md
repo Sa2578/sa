@@ -49,6 +49,7 @@ Risposta utile:
 - `message.html`: HTML gia' tracciato
 - `message.text`: versione testo
 - `message.headers`: header custom da inoltrare nel nodo email
+- `providerHints`: metadata/tag/custom args pronti per SendGrid, Mailgun, Postmark, Resend e SES
 - `tracking.eventsWebhookUrl`: endpoint per `accepted/delivered/bounce/reply`
 - `tracking.headersWebhookUrl`: endpoint per salvare gli header Gmail
 
@@ -163,6 +164,7 @@ Questo endpoint apre la mailbox via IMAP, legge i messaggi recenti in `INBOX`, c
 
 - nodo `HTTP Request` iniziale -> `POST /api/n8n/prepare-send`
 - nodo email -> invia `message.html`
+- se usi un provider API, passa anche `providerHints`
 - nodo `HTTP Request` successivo -> `POST /api/n8n/events` con `accepted`
 - eventuale provider webhook o polling -> `POST /api/n8n/events` con `delivered`, `bounce`, `reply`, `spam`
 - eventuale step manuale o Gmail parsing -> `POST /api/n8n/header-analysis`

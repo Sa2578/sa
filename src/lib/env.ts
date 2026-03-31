@@ -15,6 +15,11 @@ function readEnv(name: RequiredEnvVar) {
   return value;
 }
 
+function readOptionalSecret(name: string) {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
 export function assertRequiredEnv() {
   for (const envVar of requiredEnvVars) {
     readEnv(envVar);
@@ -61,7 +66,11 @@ export function getAppUrl() {
 }
 
 export function getWebhookSecret() {
-  return process.env.WEBHOOK_SECRET || null;
+  return readOptionalSecret("WEBHOOK_SECRET");
+}
+
+export function getMaintenanceSecret() {
+  return readOptionalSecret("MAINTENANCE_SECRET") || getWebhookSecret();
 }
 
 export function getAppUrlDiagnostics() {

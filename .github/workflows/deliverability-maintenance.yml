@@ -1,0 +1,57 @@
+name: Deliverability Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_reply_sync:
+        description: Run reply sync
+        required: false
+        default: true
+        type: boolean
+      run_dns_refresh:
+        description: Run DNS refresh
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    - cron: "17 * * * *"
+    - cron: "33 5 * * *"
+
+jobs:
+  reply-sync:
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.run_reply_sync ||
+      github.event_name == 'schedule' && github.event.schedule == '17 * * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reply sync
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          test -n "$APP_BASE_URL"
+          test -n "$MAINTENANCE_SECRET"
+          curl --fail --show-error --silent \
+            -X POST "$APP_BASE_URL/api/maintenance/reply-sync" \
+            -H "content-type: application/json" \
+            -H "x-maintenance-secret: $MAINTENANCE_SECRET" \
+            -d '{"lookbackDays":21,"maxMessages":200,"maxInboxes":25}'
+
+  dns-refresh:
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.run_dns_refresh ||
+      github.event_name == 'schedule' && github.event.schedule == '33 5 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger DNS refresh
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          test -n "$APP_BASE_URL"
+          test -n "$MAINTENANCE_SECRET"
+          curl --fail --show-error --silent \
+            -X POST "$APP_BASE_URL/api/maintenance/dns-refresh" \
+            -H "content-type: application/json" \
+            -H "x-maintenance-secret: $MAINTENANCE_SECRET" \
+            -d '{"maxDomains":50}'

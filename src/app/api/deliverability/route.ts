@@ -52,5 +52,40 @@ export async function GET(req: Request) {
     }))
   );
 
-  return NextResponse.json({ metrics, timeSeries, domainMetrics });
+  const [inboxes, campaigns] = await Promise.all([
+    prisma.inbox.findMany({
+      where: { domain: { userId: session.user.id } },
+      select: { id: true, emailAddress: true },
+    }),
+    prisma.campaign.findMany({
+      where: {
+        userId: session.user.id,
+        emailLogs: {
+          some: {
+            sentAt: {
+              gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+            },
+          },
+        },
+      },
+      select: { id: true, name: true, isSystem: true },
+    }),
+  ]);
+
+  const [inboxMetrics, campaignMetrics] = await Promise.all([
+    Promise.all(
+      inboxes.map(async (inbox) => ({
+        ...inbox,
+        metrics: await getMetrics({ userId: session.user.id, inboxId: inbox.id, days }),
+      }))
+    ),
+    Promise.all(
+      campaigns.map(async (campaign) => ({
+        ...campaign,
+        metrics: await getMetrics({ userId: session.user.id, campaignId: campaign.id, days }),
+      }))
+    ),
+  ]);
+
+  return NextResponse.json({ metrics, timeSeries, domainMetrics, inboxMetrics, campaignMetrics });
 }
