@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hash } from "bcryptjs";
+import { encryptInboxCredentials } from "../src/lib/smtp-credentials";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
@@ -67,8 +68,10 @@ async function main() {
       domainId: domain1.id,
       smtpHost: "smtp.gmail.com",
       smtpPort: 587,
-      smtpUser: "john@outreach.io",
-      smtpPass: "app-password-here",
+      ...encryptInboxCredentials({
+        smtpUser: "john@outreach.io",
+        smtpPass: "app-password-here",
+      }),
       dailyLimit: 50,
       sentToday: 23,
       reputationScore: 92,
@@ -84,8 +87,10 @@ async function main() {
       domainId: domain1.id,
       smtpHost: "smtp.gmail.com",
       smtpPort: 587,
-      smtpUser: "sarah@outreach.io",
-      smtpPass: "app-password-here",
+      ...encryptInboxCredentials({
+        smtpUser: "sarah@outreach.io",
+        smtpPass: "app-password-here",
+      }),
       dailyLimit: 40,
       sentToday: 15,
       reputationScore: 88,
@@ -101,8 +106,10 @@ async function main() {
       domainId: domain2.id,
       smtpHost: "smtp.zoho.com",
       smtpPort: 587,
-      smtpUser: "hello@coldmail.co",
-      smtpPass: "app-password-here",
+      ...encryptInboxCredentials({
+        smtpUser: "hello@coldmail.co",
+        smtpPass: "app-password-here",
+      }),
       dailyLimit: 20,
       sentToday: 5,
       reputationScore: 75,

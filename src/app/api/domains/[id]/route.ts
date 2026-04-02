@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { publicDomainInboxSelect } from "@/lib/inbox-response";
 import { domainSchema } from "@/lib/validators";
 
 export async function GET(
@@ -15,7 +16,24 @@ export async function GET(
   const { id } = await params;
   const domain = await prisma.domain.findFirst({
     where: { id, userId: session.user.id },
-    include: { inboxes: true },
+    select: {
+      id: true,
+      domainName: true,
+      status: true,
+      spfValid: true,
+      dkimValid: true,
+      dmarcValid: true,
+      dkimSelectors: true,
+      spfRecord: true,
+      dmarcRecord: true,
+      mxRecords: true,
+      dnsCheckReport: true,
+      dnsLastCheckedAt: true,
+      dnsLastError: true,
+      inboxes: {
+        select: publicDomainInboxSelect,
+      },
+    },
   });
 
   if (!domain) {

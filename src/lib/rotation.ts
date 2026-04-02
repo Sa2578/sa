@@ -1,4 +1,8 @@
 import { prisma } from "./prisma";
+import {
+  decryptInboxCredentials,
+  getInboxCredentialUpgrade,
+} from "./smtp-credentials";
 
 export async function getNextInbox(userId: string) {
   const inbox = await prisma.inbox.findFirst({
@@ -21,7 +25,15 @@ export async function getNextInbox(userId: string) {
   // Double check limit
   if (inbox.sentToday >= inbox.dailyLimit) return null;
 
-  return inbox;
+  const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+  if (Object.keys(credentialUpgrade).length > 0) {
+    await prisma.inbox.update({
+      where: { id: inbox.id },
+      data: credentialUpgrade,
+    });
+  }
+
+  return decryptInboxCredentials(inbox);
 }
 
 export async function getNextInboxRaw(userId: string) {
@@ -39,7 +51,18 @@ export async function getNextInboxRaw(userId: string) {
     LIMIT 1
   `;
 
-  return inboxes[0] || null;
+  const inbox = inboxes[0];
+  if (!inbox) return null;
+
+  const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+  if (Object.keys(credentialUpgrade).length > 0) {
+    await prisma.inbox.update({
+      where: { id: inbox.id },
+      data: credentialUpgrade,
+    });
+  }
+
+  return decryptInboxCredentials(inbox);
 }
 
 export async function incrementSentCount(inboxId: string) {

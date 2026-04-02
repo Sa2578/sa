@@ -7,9 +7,22 @@ import {
 } from "@/lib/header-analysis-persistence";
 
 const headerSchema = z.object({
-  rawHeaders: z.string().trim().min(1),
+  rawHeaders: z.string().trim().min(1).optional(),
   emailLogId: z.string().trim().min(1).optional(),
   placement: z.enum(headerPlacementValues).optional(),
+  mailboxProvider: z.string().trim().min(1).max(64).optional(),
+}).superRefine((data, ctx) => {
+  const hasHeaders = Boolean(data.rawHeaders);
+  const hasPlacementObservation =
+    Boolean(data.emailLogId) && Boolean(data.placement) && data.placement !== "UNKNOWN";
+
+  if (!hasHeaders && !hasPlacementObservation) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Provide raw headers, or select an email log and a placement to save",
+      path: ["rawHeaders"],
+    });
+  }
 });
 
 export async function POST(req: Request) {
@@ -31,6 +44,7 @@ export async function POST(req: Request) {
         emailLogId: parsed.data.emailLogId,
         placement: parsed.data.placement,
         userId: session.user.id,
+        mailboxProvider: parsed.data.mailboxProvider,
       })
     );
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { checkAndCreateAlerts, getMetrics, getMetricsOverTime } from "@/lib/deliverability";
+import { getDeliverabilityOverview } from "@/lib/deliverability";
 
 export async function GET(req: Request) {
   const session = await auth();
@@ -32,60 +32,12 @@ export async function GET(req: Request) {
     }
   }
 
-  await checkAndCreateAlerts({ userId: session.user.id });
-
-  const [metrics, timeSeries] = await Promise.all([
-    getMetrics({ userId: session.user.id, domainId, inboxId, days }),
-    getMetricsOverTime({ userId: session.user.id, domainId, inboxId, days }),
-  ]);
-
-  // Get per-domain breakdown
-  const domains = await prisma.domain.findMany({
-    where: { userId: session.user.id },
-    select: { id: true, domainName: true },
+  const overview = await getDeliverabilityOverview({
+    userId: session.user.id,
+    domainId,
+    inboxId,
+    days,
   });
 
-  const domainMetrics = await Promise.all(
-    domains.map(async (d) => ({
-      ...d,
-      metrics: await getMetrics({ userId: session.user.id, domainId: d.id, days }),
-    }))
-  );
-
-  const [inboxes, campaigns] = await Promise.all([
-    prisma.inbox.findMany({
-      where: { domain: { userId: session.user.id } },
-      select: { id: true, emailAddress: true },
-    }),
-    prisma.campaign.findMany({
-      where: {
-        userId: session.user.id,
-        emailLogs: {
-          some: {
-            sentAt: {
-              gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
-            },
-          },
-        },
-      },
-      select: { id: true, name: true, isSystem: true },
-    }),
-  ]);
-
-  const [inboxMetrics, campaignMetrics] = await Promise.all([
-    Promise.all(
-      inboxes.map(async (inbox) => ({
-        ...inbox,
-        metrics: await getMetrics({ userId: session.user.id, inboxId: inbox.id, days }),
-      }))
-    ),
-    Promise.all(
-      campaigns.map(async (campaign) => ({
-        ...campaign,
-        metrics: await getMetrics({ userId: session.user.id, campaignId: campaign.id, days }),
-      }))
-    ),
-  ]);
-
-  return NextResponse.json({ metrics, timeSeries, domainMetrics, inboxMetrics, campaignMetrics });
+  return NextResponse.json(overview);
 }

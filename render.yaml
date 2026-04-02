@@ -23,7 +23,11 @@ services:
           property: connectionString
       - key: NEXTAUTH_SECRET
         generateValue: true
+      - key: SMTP_CREDENTIALS_SECRET
+        generateValue: true
       - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: MAINTENANCE_SECRET
         generateValue: true
 
   - type: worker
@@ -51,11 +55,21 @@ services:
           type: web
           name: outbound-crm-web
           envVarKey: NEXTAUTH_SECRET
+      - key: SMTP_CREDENTIALS_SECRET
+        fromService:
+          type: web
+          name: outbound-crm-web
+          envVarKey: SMTP_CREDENTIALS_SECRET
       - key: WEBHOOK_SECRET
         fromService:
           type: web
           name: outbound-crm-web
           envVarKey: WEBHOOK_SECRET
+      - key: MAINTENANCE_SECRET
+        fromService:
+          type: web
+          name: outbound-crm-web
+          envVarKey: MAINTENANCE_SECRET
       - key: NEXTAUTH_URL
         fromService:
           type: web

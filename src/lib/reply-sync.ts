@@ -2,6 +2,11 @@ import type { Prisma } from "@prisma/client";
 import { ImapFlow } from "imapflow";
 import { prisma } from "./prisma";
 import { recordEmailEvent } from "./email-events";
+import { resolveImapConfig } from "./imap-config";
+import {
+  decryptInboxCredentials,
+  getInboxCredentialUpgrade,
+} from "./smtp-credentials";
 
 interface SyncRepliesOptions {
   userId?: string;
@@ -17,19 +22,6 @@ interface SyncRepliesBatchOptions {
   lookbackDays?: number;
   maxMessages?: number;
   maxInboxes?: number;
-}
-
-interface InboxForReplySync {
-  id: string;
-  emailAddress: string;
-  replyToEmail: string | null;
-  smtpHost: string;
-  smtpUser: string;
-  smtpPass: string;
-  domain: {
-    domainName: string;
-    userId: string;
-  };
 }
 
 export interface ReplySyncBatchInboxResult {
@@ -82,37 +74,6 @@ function collectHeaderValues(rawHeaders: string, name: string) {
     });
 }
 
-function resolveImapConfig(inbox: InboxForReplySync) {
-  const emailDomain = inbox.emailAddress.split("@")[1]?.toLowerCase() || inbox.domain.domainName;
-  const smtpHost = inbox.smtpHost.toLowerCase();
-
-  if (smtpHost.includes("gmail.com") || emailDomain === "gmail.com") {
-    return { host: "imap.gmail.com", port: 993, secure: true };
-  }
-
-  if (
-    smtpHost.includes("outlook") ||
-    smtpHost.includes("office365") ||
-    ["outlook.com", "hotmail.com", "live.com"].includes(emailDomain)
-  ) {
-    return { host: "outlook.office365.com", port: 993, secure: true };
-  }
-
-  if (smtpHost.includes("yahoo") || emailDomain.endsWith("yahoo.com")) {
-    return { host: "imap.mail.yahoo.com", port: 993, secure: true };
-  }
-
-  if (smtpHost.includes("zoho") || emailDomain.endsWith("zoho.com")) {
-    return { host: "imap.zoho.com", port: 993, secure: true };
-  }
-
-  if (smtpHost.startsWith("smtp.")) {
-    return { host: `imap.${smtpHost.slice(5)}`, port: 993, secure: true };
-  }
-
-  return { host: `imap.${emailDomain}`, port: 993, secure: true };
-}
-
 function toDate(value?: Date | string | null) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -150,9 +111,19 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
     throw new Error("Inbox not found");
   }
 
+  const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+  if (Object.keys(credentialUpgrade).length > 0) {
+    await prisma.inbox.update({
+      where: { id: inbox.id },
+      data: credentialUpgrade,
+    });
+  }
+
+  const decryptedInbox = decryptInboxCredentials(inbox);
+
   const candidateLogs = await prisma.emailLog.findMany({
     where: {
-      inboxId: inbox.id,
+      inboxId: decryptedInbox.id,
       sentAt: { gte: since },
       OR: [{ messageId: { not: null } }, { providerMessageId: { not: null } }],
     },
@@ -186,7 +157,7 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
   const existingReplyEvents = await prisma.emailEvent.findMany({
     where: {
       eventType: "reply",
-      emailLog: { inboxId: inbox.id },
+      emailLog: { inboxId: decryptedInbox.id },
       receivedAt: { gte: since },
     },
     select: {
@@ -206,19 +177,19 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
   }
 
   const selfAddresses = new Set(
-    [inbox.emailAddress, inbox.replyToEmail, inbox.smtpUser]
+    [decryptedInbox.emailAddress, decryptedInbox.replyToEmail, decryptedInbox.smtpUser]
       .filter(Boolean)
       .map((entry) => entry!.trim().toLowerCase())
   );
 
-  const imap = resolveImapConfig(inbox);
+  const imap = resolveImapConfig(decryptedInbox);
   const client = new ImapFlow({
     host: imap.host,
     port: imap.port,
     secure: imap.secure,
     auth: {
-      user: inbox.smtpUser,
-      pass: inbox.smtpPass,
+      user: decryptedInbox.smtpUser,
+      pass: decryptedInbox.smtpPass,
     },
     logger: false,
     disableAutoIdle: true,
@@ -241,8 +212,8 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
       if (messageUids.length === 0) {
         return {
           success: true,
-          inboxId: inbox.id,
-          inboxEmailAddress: inbox.emailAddress,
+          inboxId: decryptedInbox.id,
+          inboxEmailAddress: decryptedInbox.emailAddress,
           imap,
           lookedBackDays: lookbackDays,
           scannedMessages,
@@ -362,8 +333,8 @@ export async function syncInboxReplies(options: SyncRepliesOptions) {
 
   return {
     success: true,
-    inboxId: inbox.id,
-    inboxEmailAddress: inbox.emailAddress,
+    inboxId: decryptedInbox.id,
+    inboxEmailAddress: decryptedInbox.emailAddress,
     imap,
     lookedBackDays: lookbackDays,
     scannedMessages,

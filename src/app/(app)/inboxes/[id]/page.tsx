@@ -35,6 +35,7 @@ interface InboxLogEvent {
   payload?: {
     kind?: string;
     placement?: string | null;
+    mailboxProvider?: string | null;
     analysis?: HeaderAnalysis;
   } | null;
 }
@@ -145,8 +146,9 @@ function findHeaderAnalysisEvent(log: InboxLog) {
   return log.events.find(
     (event) =>
       event.eventType === "header_analysis" &&
-      event.payload?.kind === "gmail_header_analysis" &&
-      event.payload.analysis
+      ["gmail_header_analysis", "mailbox_header_analysis", "mailbox_placement_observation"].includes(
+        event.payload?.kind || ""
+      )
   );
 }
 
@@ -175,6 +177,9 @@ export default function InboxDetailPage() {
   const [headerPlacement, setHeaderPlacement] = useState("UNKNOWN");
   const [headerLogId, setHeaderLogId] = useState("");
   const [headerMessage, setHeaderMessage] = useState("");
+  const [mailboxProvider, setMailboxProvider] = useState("");
+  const [checkingPlacementLogId, setCheckingPlacementLogId] = useState<string | null>(null);
+  const [placementSyncMessage, setPlacementSyncMessage] = useState("");
 
   const fetchInbox = useCallback(async () => {
     const [inboxRes, logsRes, healthRes] = await Promise.all([
@@ -307,7 +312,12 @@ export default function InboxDetailPage() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       const warning = data.tracking?.warning ? ` ${data.tracking.warning}` : "";
-      setTestMessage(`Test email sent.${warning}`);
+      if (data.emailLogId) {
+        setHeaderLogId(data.emailLogId);
+      }
+      setTestMessage(
+        `Test email sent.${warning} If the recipient mailbox is also configured as an inbox in this account, you can use Check Mailbox Placement below once it arrives.`
+      );
     } else {
       setTestMessage(data.error || "Unable to send test email.");
     }
@@ -326,15 +336,16 @@ export default function InboxDetailPage() {
         rawHeaders,
         placement: headerPlacement,
         emailLogId: headerLogId || undefined,
+        mailboxProvider: mailboxProvider || undefined,
       }),
     });
 
     const data = await res.json().catch(() => null);
     if (res.ok) {
-      setHeaderAnalysis(data.analysis || data);
+      setHeaderAnalysis(data.analysis || null);
       setHeaderMessage(
         data.persisted
-          ? `Header analysis saved to the email log${data.placement && data.placement !== "UNKNOWN" ? ` (${formatPlacementLabel(data.placement)})` : ""}.`
+          ? `${data.observationKind === "mailbox_placement_observation" ? "Mailbox placement" : "Header analysis"} saved to the email log${data.placement && data.placement !== "UNKNOWN" ? ` (${formatPlacementLabel(data.placement)})` : ""}.`
           : "Headers analyzed, but no matching email log was found to persist the result."
       );
       fetchInbox();
@@ -343,6 +354,39 @@ export default function InboxDetailPage() {
       setHeaderMessage("Unable to analyze or save these headers.");
     }
     setAnalyzingHeaders(false);
+  }
+
+  async function handleCheckMailboxPlacement(logId: string) {
+    setCheckingPlacementLogId(logId);
+    setPlacementSyncMessage("");
+
+    const res = await fetch(`/api/inboxes/${id}/logs/${logId}/placement`, {
+      method: "POST",
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      if (data.found) {
+        setHeaderLogId(logId);
+        setHeaderAnalysis(data.analysis || null);
+        setPlacementSyncMessage(
+          `Mailbox placement detected: ${formatPlacementLabel(data.placement)} in ${data.mailboxPath}${data.mailboxProvider ? ` (${data.mailboxProvider})` : ""}.`
+        );
+      } else {
+        setPlacementSyncMessage(
+          `No matching message was found yet in ${Array.isArray(data.checkedMailboxes) && data.checkedMailboxes.length > 0 ? data.checkedMailboxes.join(", ") : "the checked mailboxes"}.`
+        );
+      }
+
+      fetchInbox();
+    } else {
+      setPlacementSyncMessage(
+        data.error ||
+          "Unable to check mailbox placement. The recipient mailbox must be configured as a sending inbox or monitoring mailbox in this account."
+      );
+    }
+
+    setCheckingPlacementLogId(null);
   }
 
   if (!inbox) return <div className="text-gray-500">Loading...</div>;
@@ -492,7 +536,7 @@ export default function InboxDetailPage() {
         <Card>
           <h2 className="mb-4 text-lg font-semibold">Send Real Test Email</h2>
           <div className="space-y-4">
-            <Input label="Recipient Email" type="email" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} placeholder="your-gmail-test@gmail.com" />
+            <Input label="Recipient Email" type="email" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} placeholder="your-test-mailbox@example.com" />
             <Input label="Subject" value={testSubject} onChange={(e) => setTestSubject(e.target.value)} placeholder="[Deliverability Test]" />
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">HTML Body</label>
@@ -510,14 +554,22 @@ export default function InboxDetailPage() {
             {testMessage && (
               <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">{testMessage}</p>
             )}
+            {placementSyncMessage && (
+              <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                {placementSyncMessage}
+              </p>
+            )}
+            <p className="text-xs text-gray-500">
+              Automatic mailbox placement checks work when the recipient mailbox is configured in this account as a sending inbox or a monitoring mailbox, so OutboundCRM can read it over IMAP.
+            </p>
           </div>
         </Card>
       </div>
 
       <Card className="mt-6">
-        <h2 className="mb-4 text-lg font-semibold">Analyze Gmail Raw Headers</h2>
+        <h2 className="mb-4 text-lg font-semibold">Record Mailbox Placement Or Analyze Raw Headers</h2>
         <p className="mb-3 text-sm text-gray-500">
-          After receiving the test email in Gmail, open “Show original”, copy the headers and paste them here to inspect SPF, DKIM and DMARC.
+          After receiving the test email in your mailbox provider, paste raw headers here to inspect SPF, DKIM, and DMARC. If raw headers are not available, you can still save a manual placement observation like Inbox or Spam for Gmail, Yahoo, Outlook, or any custom mailbox.
         </p>
         <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
@@ -552,16 +604,27 @@ export default function InboxDetailPage() {
             </select>
           </div>
         </div>
+        <div className="mb-4">
+          <Input
+            label="Mailbox Provider"
+            value={mailboxProvider}
+            onChange={(e) => setMailboxProvider(e.target.value)}
+            placeholder="gmail, yahoo, outlook, apple mail"
+          />
+        </div>
         <textarea
           value={rawHeaders}
           onChange={(e) => setRawHeaders(e.target.value)}
           rows={10}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
-          placeholder="Paste raw headers from Gmail here"
+          placeholder="Paste raw headers here if available, or leave this empty and save only the placement"
         />
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={handleAnalyzeHeaders} disabled={analyzingHeaders || !rawHeaders.trim()}>
-            {analyzingHeaders ? "Analyzing..." : "Analyze Headers"}
+          <Button
+            onClick={handleAnalyzeHeaders}
+            disabled={analyzingHeaders || (!rawHeaders.trim() && !(headerLogId && headerPlacement !== "UNKNOWN"))}
+          >
+            {analyzingHeaders ? "Saving..." : "Save Placement / Analyze Headers"}
           </Button>
         </div>
 
@@ -628,6 +691,18 @@ export default function InboxDetailPage() {
                     </Badge>
                   ))}
                   {log.events.length === 0 && <Badge color="gray">No events yet</Badge>}
+                  {log.campaign.isSystem && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleCheckMailboxPlacement(log.id)}
+                      disabled={checkingPlacementLogId === log.id}
+                    >
+                      {checkingPlacementLogId === log.id
+                        ? "Checking..."
+                        : "Check Mailbox Placement"}
+                    </Button>
+                  )}
                 </div>
                 {log.events.some((event) => event.eventType === "open_proxy") && (
                   <p className="mt-3 text-xs text-yellow-700">
@@ -636,7 +711,7 @@ export default function InboxDetailPage() {
                 )}
                 {log.events.some((event) => event.eventType === "open_suspected") && (
                   <p className="mt-3 text-xs text-yellow-700">
-                    A pixel fetch from a proxy or prefetcher was recorded and ignored for open-rate purposes. Gmail webmail image loads are treated as unverified opens.
+                    A pixel fetch from a proxy or prefetcher was recorded and ignored for open-rate purposes. Webmail image proxy loads are treated as unverified opens.
                   </p>
                 )}
                 {findHeaderAnalysisEvent(log)?.payload?.analysis && (
@@ -654,9 +729,31 @@ export default function InboxDetailPage() {
                       <Badge color={getPlacementColor(findHeaderAnalysisEvent(log)?.payload?.placement)}>
                         Placement: {formatPlacementLabel(findHeaderAnalysisEvent(log)?.payload?.placement)}
                       </Badge>
+                      {findHeaderAnalysisEvent(log)?.payload?.mailboxProvider && (
+                        <Badge color="blue">
+                          Provider: {findHeaderAnalysisEvent(log)?.payload?.mailboxProvider}
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-xs text-gray-600">Saved from Gmail raw headers.</p>
+                    <p className="text-xs text-gray-600">Saved from a mailbox header analysis.</p>
                   </div>
+                )}
+                {!findHeaderAnalysisEvent(log)?.payload?.analysis &&
+                  findHeaderAnalysisEvent(log)?.payload?.placement &&
+                  findHeaderAnalysisEvent(log)?.payload?.placement !== "UNKNOWN" && (
+                    <div className="mt-3 rounded-lg bg-gray-50 p-3">
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        <Badge color={getPlacementColor(findHeaderAnalysisEvent(log)?.payload?.placement)}>
+                          Placement: {formatPlacementLabel(findHeaderAnalysisEvent(log)?.payload?.placement)}
+                        </Badge>
+                        {findHeaderAnalysisEvent(log)?.payload?.mailboxProvider && (
+                          <Badge color="blue">
+                            Provider: {findHeaderAnalysisEvent(log)?.payload?.mailboxProvider}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600">Saved from a manual mailbox placement observation.</p>
+                    </div>
                 )}
                 {log.smtpResponse && (
                   <p className="mt-3 font-mono text-xs text-gray-600">{log.smtpResponse}</p>

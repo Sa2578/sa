@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { publicInboxWithDomainSelect } from "@/lib/inbox-response";
+import { encryptInboxCredentials } from "@/lib/smtp-credentials";
 import { inboxSchema } from "@/lib/validators";
 import { syncInboxDailyCounters } from "@/lib/inbox-rotation";
 
@@ -16,7 +18,7 @@ export async function GET(
   const { id } = await params;
   const inbox = await prisma.inbox.findFirst({
     where: { id, domain: { userId: session.user.id } },
-    include: { domain: true },
+    select: publicInboxWithDomainSelect,
   });
 
   if (!inbox) {
@@ -27,7 +29,7 @@ export async function GET(
 
   const refreshed = await prisma.inbox.findFirst({
     where: { id, domain: { userId: session.user.id } },
-    include: { domain: true },
+    select: publicInboxWithDomainSelect,
   });
 
   return NextResponse.json(refreshed);
@@ -57,9 +59,20 @@ export async function PUT(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  if (parsed.data.domainId) {
+    const nextDomain = await prisma.domain.findFirst({
+      where: { id: parsed.data.domainId, userId: session.user.id },
+      select: { id: true },
+    });
+    if (!nextDomain) {
+      return NextResponse.json({ error: "Domain not found" }, { status: 404 });
+    }
+  }
+
   const updated = await prisma.inbox.update({
     where: { id },
-    data: parsed.data,
+    data: encryptInboxCredentials(parsed.data),
+    select: publicInboxWithDomainSelect,
   });
 
   return NextResponse.json(updated);

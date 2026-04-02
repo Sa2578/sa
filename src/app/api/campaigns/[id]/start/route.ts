@@ -41,6 +41,7 @@ export async function POST(
           userId: session.user.id,
         },
         opts: {
+          jobId: `campaign:${campaign.id}:lead:${lead.id}`,
           delay: index * 5000,
           attempts: 3,
           backoff: { type: "exponential", delay: 30000 },

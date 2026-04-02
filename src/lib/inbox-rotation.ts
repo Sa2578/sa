@@ -1,5 +1,9 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { getStartOfCurrentDay } from "./runtime";
+import {
+  decryptInboxCredentials,
+  getInboxCredentialUpgrade,
+} from "./smtp-credentials";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -64,7 +68,20 @@ export async function selectInboxForSending(
     getAvailableInboxQuery(userId, startOfDay)
   );
 
-  return inboxes[0] ?? null;
+  const inbox = inboxes[0];
+  if (!inbox) {
+    return null;
+  }
+
+  const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+  if (Object.keys(credentialUpgrade).length > 0) {
+    await tx.inbox.update({
+      where: { id: inbox.id },
+      data: credentialUpgrade,
+    });
+  }
+
+  return decryptInboxCredentials(inbox);
 }
 
 export async function syncInboxDailyCounters(tx: DbClient, inboxIds?: string[]) {

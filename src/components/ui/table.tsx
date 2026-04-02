@@ -11,6 +11,7 @@ interface TableProps<T> {
   data: T[];
   onRowClick?: (item: T) => void;
   emptyMessage?: string;
+  rowKey?: keyof T | ((item: T) => string);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,6 +20,7 @@ export function Table<T extends Record<string, any>>({
   data,
   onRowClick,
   emptyMessage = "No data found",
+  rowKey,
 }: TableProps<T>) {
   if (data.length === 0) {
     return (
@@ -44,9 +46,17 @@ export function Table<T extends Record<string, any>>({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
-          {data.map((item, i) => (
+          {data.map((item, i) => {
+            const resolvedKey =
+              typeof rowKey === "function"
+                ? rowKey(item)
+                : rowKey
+                  ? String(item[rowKey] ?? i)
+                  : i;
+
+            return (
             <tr
-              key={i}
+              key={resolvedKey}
               className={onRowClick ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/70" : ""}
               onClick={() => onRowClick?.(item)}
             >
@@ -59,7 +69,8 @@ export function Table<T extends Record<string, any>>({
                 </td>
               ))}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

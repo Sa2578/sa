@@ -15,10 +15,13 @@ export const headerPlacementValues = [
 export type HeaderPlacement = (typeof headerPlacementValues)[number];
 
 interface PersistHeaderAnalysisOptions {
-  rawHeaders: string;
+  rawHeaders?: string;
   emailLogId?: string;
   placement?: HeaderPlacement;
   userId?: string;
+  mailboxProvider?: string;
+  source?: "manual" | "imap";
+  payloadMetadata?: Prisma.InputJsonObject;
 }
 
 function shouldPromoteToDelivered(status: EmailStatus) {
@@ -26,7 +29,15 @@ function shouldPromoteToDelivered(status: EmailStatus) {
 }
 
 export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOptions) {
-  const analysis = analyzeRawHeaders(options.rawHeaders);
+  const rawHeaders = options.rawHeaders?.trim();
+  const analysis = rawHeaders ? analyzeRawHeaders(rawHeaders) : null;
+  const observationKind = analysis
+    ? "mailbox_header_analysis"
+    : "mailbox_placement_observation";
+
+  if (!analysis && !options.emailLogId) {
+    throw new Error("Email log ID is required when raw headers are not provided");
+  }
 
   const ownershipClause = options.userId
     ? { inbox: { domain: { userId: options.userId } } }
@@ -58,7 +69,7 @@ export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOption
     });
   }
 
-  if (!emailLog && analysis.messageId) {
+  if (!emailLog && analysis?.messageId) {
     emailLog = await prisma.emailLog.findFirst({
       where: {
         ...ownershipClause,
@@ -91,20 +102,23 @@ export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOption
       analysis,
       persisted: false,
       matchedLog: false,
+      observationKind,
     };
   }
 
   const occurredAt = new Date();
   const placement = options.placement ?? "UNKNOWN";
   const payload = {
-    kind: "gmail_header_analysis",
+    kind: observationKind,
     placement,
+    mailboxProvider: options.mailboxProvider?.trim() || null,
     analysis: analysis as unknown as Prisma.InputJsonValue,
+    ...(options.payloadMetadata || {}),
   } as Prisma.InputJsonObject;
 
   const emailLogData: Prisma.EmailLogUpdateInput = {
-    messageId: analysis.messageId ?? emailLog.messageId,
-    providerMessageId: analysis.messageId ?? emailLog.providerMessageId,
+    messageId: analysis?.messageId ?? emailLog.messageId,
+    providerMessageId: analysis?.messageId ?? emailLog.providerMessageId,
   };
 
   if (placement === "SPAM") {
@@ -112,7 +126,7 @@ export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOption
     emailLogData.spamAt = emailLog.spamAt ?? occurredAt;
     emailLogData.latestEventType = "spam";
     emailLogData.lastEventAt = occurredAt;
-  } else {
+  } else if (analysis || placement !== "UNKNOWN") {
     emailLogData.deliveredAt = emailLog.deliveredAt ?? occurredAt;
 
     if (shouldPromoteToDelivered(emailLog.status)) {
@@ -131,10 +145,10 @@ export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOption
       data: {
         emailLogId: emailLog.id,
         eventType: "header_analysis",
-        source: "manual",
+        source: options.source ?? "manual",
         occurredAt,
-        messageId: analysis.messageId ?? emailLog.messageId,
-        providerMessageId: analysis.messageId ?? emailLog.providerMessageId,
+        messageId: analysis?.messageId ?? emailLog.messageId,
+        providerMessageId: analysis?.messageId ?? emailLog.providerMessageId,
         payload,
       },
     }),
@@ -145,6 +159,7 @@ export async function persistHeaderAnalysis(options: PersistHeaderAnalysisOption
     persisted: true,
     matchedLog: true,
     placement,
+    observationKind,
     emailLogId: emailLog.id,
     inboxEmailAddress: emailLog.inbox.emailAddress,
   };

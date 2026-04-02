@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildGoogleFeedbackId } from "@/lib/google-feedback-id";
 import { prisma } from "@/lib/prisma";
 import { buildTrackingPixelUrl, wrapTrackedLinks } from "@/lib/tracking";
 import { getAppUrl } from "@/lib/env";
@@ -190,6 +191,11 @@ export async function POST(req: Request) {
           "X-OutboundCRM-Log-Id": emailLog.id,
           "X-OutboundCRM-Campaign-Id": campaign.id,
           "X-OutboundCRM-Inbox-Id": inbox.id,
+          "Feedback-ID": buildGoogleFeedbackId({
+            campaignId: campaign.id,
+            userId: inbox.domain.userId,
+            kind: campaign.isSystem ? "system" : "campaign",
+          }),
         },
       },
       providerHints: {

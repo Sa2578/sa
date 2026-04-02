@@ -73,6 +73,46 @@ export function getMaintenanceSecret() {
   return readOptionalSecret("MAINTENANCE_SECRET") || getWebhookSecret();
 }
 
+export function getSmtpCredentialsSecrets() {
+  return Array.from(
+    new Set(
+      [
+        readOptionalSecret("SMTP_CREDENTIALS_SECRET"),
+        readOptionalSecret("NEXTAUTH_SECRET") || readEnv("NEXTAUTH_SECRET"),
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+}
+
+export function getSmtpCredentialsSecret() {
+  return getSmtpCredentialsSecrets()[0];
+}
+
+export function getGooglePostmasterClientId() {
+  return readOptionalSecret("GOOGLE_POSTMASTER_CLIENT_ID");
+}
+
+export function getGooglePostmasterClientSecret() {
+  return readOptionalSecret("GOOGLE_POSTMASTER_CLIENT_SECRET");
+}
+
+export function isGooglePostmasterConfigured() {
+  return Boolean(getGooglePostmasterClientId() && getGooglePostmasterClientSecret());
+}
+
+export function requireGooglePostmasterConfig() {
+  const clientId = getGooglePostmasterClientId();
+  const clientSecret = getGooglePostmasterClientSecret();
+
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "Missing Google Postmaster OAuth configuration: GOOGLE_POSTMASTER_CLIENT_ID and GOOGLE_POSTMASTER_CLIENT_SECRET are required"
+    );
+  }
+
+  return { clientId, clientSecret };
+}
+
 export function getAppUrlDiagnostics() {
   const url = new URL(getAppUrl());
   const hostname = url.hostname.toLowerCase();

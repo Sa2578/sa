@@ -41,6 +41,17 @@ function firstHeader(headers: Map<string, string[]>, name: string) {
   return headers.get(name.toLowerCase())?.[0] ?? null;
 }
 
+function firstHeaderFromList(headers: Map<string, string[]>, names: string[]) {
+  for (const name of names) {
+    const value = firstHeader(headers, name);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 function parseAuthResultValue(lines: string[], key: "spf" | "dkim" | "dmarc") {
   for (const line of lines) {
     const match = line.match(new RegExp(`${key}=([a-z_]+)`, "i"));
@@ -58,7 +69,11 @@ export function analyzeRawHeaders(rawHeaders: string): ParsedHeaderAnalysis {
   return {
     from: firstHeader(headers, "from"),
     returnPath: firstHeader(headers, "return-path"),
-    deliveredTo: firstHeader(headers, "delivered-to"),
+    deliveredTo: firstHeaderFromList(headers, [
+      "delivered-to",
+      "x-original-to",
+      "x-apparently-to",
+    ]),
     subject: firstHeader(headers, "subject"),
     messageId: firstHeader(headers, "message-id"),
     authenticationResults: {

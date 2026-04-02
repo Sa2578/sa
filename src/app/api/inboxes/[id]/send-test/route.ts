@@ -4,8 +4,13 @@ import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { getAppUrlDiagnostics } from "@/lib/env";
 import { recordEmailEvent, guessBounceType } from "@/lib/email-events";
+import { buildGoogleFeedbackId } from "@/lib/google-feedback-id";
 import { formatMailbox, sendEmail } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
+import {
+  decryptInboxCredentials,
+  getInboxCredentialUpgrade,
+} from "@/lib/smtp-credentials";
 import { buildTrackingPixelUrl, wrapTrackedLinks } from "@/lib/tracking";
 
 const sendTestSchema = z.object({
@@ -39,6 +44,16 @@ export async function POST(
     if (!inbox) {
       return NextResponse.json({ error: "Inbox not found" }, { status: 404 });
     }
+
+    const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+    if (Object.keys(credentialUpgrade).length > 0) {
+      await prisma.inbox.update({
+        where: { id: inbox.id },
+        data: credentialUpgrade,
+      });
+    }
+
+    const decryptedInbox = decryptInboxCredentials(inbox);
 
     const appUrl = getAppUrlDiagnostics();
     const systemCampaignName = "__Deliverability Tests__";
@@ -74,7 +89,7 @@ export async function POST(
         <p>Hello,</p>
         <p>This is a real deliverability test sent from <strong>${inbox.emailAddress}</strong>.</p>
         <p>If you can see this message, the SMTP handoff worked.</p>
-        <p>Please open it from Gmail and, if you want, click <a href="https://example.com">this test link</a>.</p>
+        <p>Please open it in your test mailbox and, if you want, click <a href="https://example.com">this test link</a>.</p>
         <p>Regards,<br/>Outbound CRM</p>
       `.trim();
 
@@ -116,21 +131,26 @@ export async function POST(
     try {
       const result = await sendEmail(
         {
-          smtpHost: inbox.smtpHost,
-          smtpPort: inbox.smtpPort,
-          smtpUser: inbox.smtpUser,
-          smtpPass: inbox.smtpPass,
+          smtpHost: decryptedInbox.smtpHost,
+          smtpPort: decryptedInbox.smtpPort,
+          smtpUser: decryptedInbox.smtpUser,
+          smtpPass: decryptedInbox.smtpPass,
         },
         {
-          from: formatMailbox(inbox.emailAddress, inbox.senderName),
+          from: formatMailbox(decryptedInbox.emailAddress, decryptedInbox.senderName),
           to: parsed.data.recipientEmail,
           subject,
           html: htmlWithTracking,
           text: textBody,
-          replyTo: inbox.replyToEmail || undefined,
+          replyTo: decryptedInbox.replyToEmail || undefined,
           headers: {
             "X-OutboundCRM-Log-Id": emailLog.id,
             "X-OutboundCRM-Campaign-Id": campaign.id,
+            "Feedback-ID": buildGoogleFeedbackId({
+              campaignId: campaign.id,
+              userId: session.user.id,
+              kind: "test",
+            }),
           },
         }
       );

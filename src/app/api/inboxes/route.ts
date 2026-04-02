@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { publicInboxWithDomainSelect } from "@/lib/inbox-response";
+import { encryptInboxCredentials } from "@/lib/smtp-credentials";
 import { inboxSchema } from "@/lib/validators";
 import { syncInboxDailyCounters } from "@/lib/inbox-rotation";
 
@@ -12,7 +14,7 @@ export async function GET() {
 
   const inboxes = await prisma.inbox.findMany({
     where: { domain: { userId: session.user.id } },
-    include: { domain: { select: { domainName: true } } },
+    select: { id: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -20,7 +22,7 @@ export async function GET() {
 
   const refreshed = await prisma.inbox.findMany({
     where: { domain: { userId: session.user.id } },
-    include: { domain: { select: { domainName: true } } },
+    select: publicInboxWithDomainSelect,
     orderBy: { createdAt: "desc" },
   });
 
@@ -48,7 +50,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Domain not found" }, { status: 404 });
     }
 
-    const inbox = await prisma.inbox.create({ data: parsed.data });
+    const inbox = await prisma.inbox.create({
+      data: encryptInboxCredentials(parsed.data),
+      select: publicInboxWithDomainSelect,
+    });
     return NextResponse.json(inbox, { status: 201 });
   } catch (error) {
     const message =

@@ -1,32 +1,11 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
+import { auth } from "@/lib/auth";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [checked, setChecked] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/auth/session")
-      .then((res) => res.json())
-      .then((session) => {
-        if (!session?.user) {
-          router.push("/login");
-        } else {
-          setChecked(true);
-        }
-      })
-      .catch(() => router.push("/login"));
-  }, [router]);
-
-  if (!checked) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <p className="text-gray-500 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/login");
   }
 
   return (

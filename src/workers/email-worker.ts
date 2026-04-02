@@ -3,6 +3,7 @@ import { Worker, Job } from "bullmq";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { recordEmailEvent, guessBounceType } from "../lib/email-events";
+import { buildGoogleFeedbackId } from "../lib/google-feedback-id";
 import { formatMailbox, sendEmail } from "../lib/mailer";
 import { getDatabaseUrl } from "../lib/env";
 import { selectInboxForSending, syncInboxDailyCounters } from "../lib/inbox-rotation";
@@ -103,6 +104,11 @@ const worker = new Worker<EmailJob>(
           headers: {
             "X-OutboundCRM-Log-Id": emailLog.id,
             "X-OutboundCRM-Campaign-Id": campaign.id,
+            "Feedback-ID": buildGoogleFeedbackId({
+              campaignId: campaign.id,
+              userId,
+              kind: campaign.isSystem ? "system" : "campaign",
+            }),
           },
         }
       );

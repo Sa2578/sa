@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { verifySmtp } from "@/lib/mailer";
+import {
+  decryptInboxCredentials,
+  getInboxCredentialUpgrade,
+} from "@/lib/smtp-credentials";
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -34,7 +38,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Inbox not found" }, { status: 404 });
     }
 
-    await verifySmtp(inbox);
+    const credentialUpgrade = getInboxCredentialUpgrade(inbox);
+    if (Object.keys(credentialUpgrade).length > 0) {
+      await prisma.inbox.update({
+        where: { id: inbox.id },
+        data: credentialUpgrade,
+      });
+    }
+
+    await verifySmtp(decryptInboxCredentials(inbox));
 
     await prisma.inbox.update({
       where: { id: inbox.id },

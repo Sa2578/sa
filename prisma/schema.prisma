@@ -7,14 +7,16 @@ datasource db {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  name         String?
-  email        String     @unique
-  passwordHash String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  domains      Domain[]
-  campaigns    Campaign[]
+  id                     String                   @id @default(cuid())
+  name                   String?
+  email                  String                   @unique
+  passwordHash           String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  domains                Domain[]
+  campaigns              Campaign[]
+  monitoringMailboxes    MonitoringMailbox[]
+  googlePostmasterAccount GooglePostmasterAccount?
 }
 
 model Domain {
@@ -72,10 +74,41 @@ model Inbox {
   @@index([domainId])
 }
 
+model MonitoringMailbox {
+  id              String                  @id @default(cuid())
+  userId          String
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAddress    String
+  provider        String
+  usage           MonitoringMailboxUsage  @default(PLACEMENT)
+  imapHost        String?
+  imapPort        Int                     @default(993)
+  imapSecure      Boolean                 @default(true)
+  imapUser        String
+  imapPass        String
+  inboxFolderHint String?
+  spamFolderHint  String?
+  notes           String?
+  isActive        Boolean                 @default(true)
+  lastCheckedAt   DateTime?
+  lastCheckError  String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([userId, emailAddress])
+  @@index([userId, isActive])
+}
+
 enum WarmupStatus {
   NONE
   IN_PROGRESS
   COMPLETED
+}
+
+enum MonitoringMailboxUsage {
+  PLACEMENT
+  FEEDBACK_LOOP
+  BOTH
 }
 
 model Lead {
@@ -203,4 +236,65 @@ model EmailEvent {
 
   @@index([emailLogId, receivedAt])
   @@index([eventType])
+}
+
+model GooglePostmasterAccount {
+  id                   String                  @id @default(cuid())
+  userId               String                  @unique
+  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail          String?
+  encryptedRefreshToken String
+  encryptedAccessToken String?
+  accessTokenExpiresAt DateTime?
+  tokenType            String?
+  scope                String?
+  lastSyncedAt         DateTime?
+  lastSyncError        String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  domains              GooglePostmasterDomain[]
+}
+
+model GooglePostmasterDomain {
+  id                  String                      @id @default(cuid())
+  accountId           String
+  account             GooglePostmasterAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  domainName          String
+  resourceName        String                      @unique
+  permission          String
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  trafficStats        GooglePostmasterTrafficStat[]
+
+  @@unique([accountId, domainName])
+  @@index([accountId])
+}
+
+model GooglePostmasterTrafficStat {
+  id                          String                 @id @default(cuid())
+  postmasterDomainId          String
+  postmasterDomain            GooglePostmasterDomain @relation(fields: [postmasterDomainId], references: [id], onDelete: Cascade)
+  resourceName                String
+  statDate                    DateTime
+  domainReputation            String?
+  userReportedSpamRatio       Float?
+  userReportedSpamRatioLowerBound Float?
+  userReportedSpamRatioUpperBound Float?
+  spfSuccessRatio             Float?
+  dkimSuccessRatio            Float?
+  dmarcSuccessRatio           Float?
+  outboundEncryptionRatio     Float?
+  inboundEncryptionRatio      Float?
+  deliveryErrors              Json?
+  ipReputations               Json?
+  spammyFeedbackLoops         Json?
+  rawPayload                  Json?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+
+  @@unique([postmasterDomainId, statDate])
+  @@index([statDate])
+  @@index([postmasterDomainId])
 }
